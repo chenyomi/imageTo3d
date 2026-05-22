@@ -10,7 +10,7 @@ import { Client } from '@gradio/client'
 // ── 配置 ─────────────────────────────────────────────────────
 
 const GRADIO_URL =
-  (import.meta.env.VITE_GRADIO_URL as string | undefined) ??
+  (import.meta.env.VITE_GRADIO_URL as string | undefined) ||
   'https://bd921b1cf789ef3ea5.gradio.live'
 
 // ── 类型定义 ────────────────────────────────────────────────
