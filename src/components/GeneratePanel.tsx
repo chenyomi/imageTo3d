@@ -22,6 +22,31 @@ import {
 
 export type PreviewStyle = 'normal' | 'clay' | 'color' | 'forest' | 'sunset' | 'blue'
 
+/** 将 SVG File 光栅化为 PNG File（通过 Canvas） */
+function svgToPng(svgFile: File, size = 1024): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(svgFile)
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth || size
+      const h = img.naturalHeight || size
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { URL.revokeObjectURL(url); return reject(new Error('No 2d context')) }
+      ctx.drawImage(img, 0, 0, w, h)
+      URL.revokeObjectURL(url)
+      canvas.toBlob((blob) => {
+        if (!blob) return reject(new Error('Canvas toBlob failed'))
+        resolve(new File([blob], svgFile.name.replace(/\.svg$/i, '.png'), { type: 'image/png' }))
+      }, 'image/png')
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG load failed')) }
+    img.src = url
+  })
+}
+
 export interface GeneratePanelProps {
   onGenerate: (image: File, prompt: string, settings: GenerateSettings) => void
   isGenerating: boolean
@@ -60,14 +85,25 @@ export default function GeneratePanel({
   const [autoFov, setAutoFov] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const setImage = useCallback((file: File) => {
-    if (!file.type.startsWith('image/') && file.type !== 'image/svg+xml') return
-    setImageFile(file)
+  const setImage = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) return
+    // 立即显示预览（SVG 在 <img> 里渲染正常）
     setImagePreview((prev) => {
       if (prev) URL.revokeObjectURL(prev)
       return URL.createObjectURL(file)
     })
     onClearError()
+    // SVG 转 PNG 再传给 API（大多数 ML 模型不支持 SVG）
+    if (file.type === 'image/svg+xml') {
+      try {
+        const png = await svgToPng(file)
+        setImageFile(png)
+      } catch {
+        setImageFile(file) // 转换失败时原样传递
+      }
+    } else {
+      setImageFile(file)
+    }
   }, [onClearError])
 
   const clearImage = (e: MouseEvent) => {
