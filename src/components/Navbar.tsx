@@ -1,24 +1,21 @@
 export default function Navbar() {
   return (
-    <nav className="flex items-center h-11 px-4 bg-[#1c1c1e] border-b border-[#2a2a2d] flex-shrink-0 z-20">
+    <nav className="flex items-center h-12 px-5 bg-[#101826] border-b border-[#263348] flex-shrink-0 z-20">
       <div className="flex items-center gap-2">
-        <svg viewBox="0 0 32 32" className="w-6 h-6" fill="none">
-          <polygon
-            points="16,3 29,27 3,27"
-            stroke="#f5c518"
-            strokeWidth="2.5"
-            strokeLinejoin="round"
-          />
-          <polygon points="16,13 23,27 9,27" fill="#f5c518" opacity="0.85" />
-        </svg>
-        <span className="font-semibold text-[15px] text-white">ImageTo3D</span>
-        <span className="text-[10px] text-[#555558] bg-[#252527] px-1.5 py-0.5 rounded font-medium ml-0.5">
-          DEMO
+        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#7c89ff] text-white shadow-[0_10px_26px_rgba(124,137,255,0.25)]">
+          <svg viewBox="0 0 32 32" className="h-5 w-5" fill="none">
+            <path d="M16 4 27 10.5v11L16 28 5 21.5v-11L16 4Z" stroke="currentColor" strokeWidth="2" />
+            <path d="M16 4v24M5 10.5l11 6.5 11-6.5" stroke="currentColor" strokeWidth="2" />
+          </svg>
+        </div>
+        <span className="font-bold text-[15px] text-white">ImageTo3D</span>
+        <span className="text-[10px] text-[#aab7cc] bg-[#1a2537] px-2 py-1 rounded-full font-semibold ml-0.5">
+          PIXAL3D
         </span>
       </div>
 
-      <div className="ml-auto text-[12px] text-[#3a3a3e]">
-        Upload an image → Generate → View 3D Model
+      <div className="ml-auto text-[12px] font-medium text-[#71809a]">
+        Image source / Engine controls / GLB export
       </div>
     </nav>
   )

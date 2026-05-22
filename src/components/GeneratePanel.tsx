@@ -1,58 +1,61 @@
 import { useState, useRef, useCallback } from 'react'
+import type { ComponentType, MouseEvent } from 'react'
 import {
-  Upload,
-  X,
-  ImageIcon,
+  AlertCircle,
+  Box,
+  Camera,
   ChevronDown,
   ChevronUp,
-  AlertCircle,
+  Dices,
+  ImageIcon,
+  Layers3,
+  Palette,
+  Sparkles,
+  UploadCloud,
+  X,
   Zap,
-  Scissors,
 } from 'lucide-react'
+import {
+  DEFAULT_GENERATE_SETTINGS,
+  type GenerateSettings,
+} from '../services/modelApi'
+
+export type PreviewStyle = 'normal' | 'clay' | 'color' | 'forest' | 'sunset' | 'blue'
 
 export interface GeneratePanelProps {
-  onGenerate: (image: File, prompt: string, mode: 'hd' | 'smart') => void
+  onGenerate: (image: File, prompt: string, settings: GenerateSettings) => void
   isGenerating: boolean
   error: string | null
   onClearError: () => void
+  previewStyle: PreviewStyle
+  onPreviewStyleChange: (style: PreviewStyle) => void
 }
 
-function Toggle({
-  value,
-  onChange,
-}: {
-  value: boolean
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <button
-      onClick={() => onChange(!value)}
-      className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
-        value ? 'bg-yellow-400' : 'bg-[#3a3a3d]'
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${
-          value ? 'translate-x-4' : 'translate-x-0.5'
-        }`}
-      />
-    </button>
-  )
-}
+const previewStyles: Array<{ id: PreviewStyle; label: string }> = [
+  { id: 'normal', label: 'Normal' },
+  { id: 'clay', label: 'Clay' },
+  { id: 'color', label: 'Color' },
+  { id: 'forest', label: 'Forest' },
+  { id: 'sunset', label: 'Sunset' },
+  { id: 'blue', label: 'Blue' },
+]
 
 export default function GeneratePanel({
   onGenerate,
   isGenerating,
   error,
   onClearError,
+  previewStyle,
+  onPreviewStyleChange,
 }: GeneratePanelProps) {
-  const [mode, setMode] = useState<'hd' | 'smart'>('hd')
   const [isDragging, setIsDragging] = useState(false)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [prompt, setPrompt] = useState('')
-  const [removeBg, setRemoveBg] = useState(true)
-  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showPrompt, setShowPrompt] = useState(false)
+  const [showEngine, setShowEngine] = useState(false)
+  const [settings, setSettings] = useState<GenerateSettings>(DEFAULT_GENERATE_SETTINGS)
+  const [autoFov, setAutoFov] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const setImage = useCallback((file: File) => {
@@ -65,7 +68,7 @@ export default function GeneratePanel({
     onClearError()
   }, [onClearError])
 
-  const clearImage = (e: React.MouseEvent) => {
+  const clearImage = (e: MouseEvent) => {
     e.stopPropagation()
     setImageFile(null)
     setImagePreview((prev) => {
@@ -88,50 +91,44 @@ export default function GeneratePanel({
     e.target.value = ''
   }
 
+  const updateSetting = <K extends keyof GenerateSettings>(
+    key: K,
+    value: GenerateSettings[K],
+  ) => {
+    setSettings((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const randomizeSeed = () => {
+    updateSetting('seed', Math.floor(Math.random() * 999999))
+  }
+
   const handleGenerate = () => {
     if (!imageFile || isGenerating) return
-    onGenerate(imageFile, prompt.trim(), mode)
+    onGenerate(imageFile, prompt.trim(), {
+      ...settings,
+      manualFov: autoFov ? -1 : settings.manualFov,
+    })
   }
 
   const canGenerate = !!imageFile && !isGenerating
 
   return (
-    <div className="w-[288px] bg-[#1c1c1e] border-r border-[#2a2a2d] flex flex-col flex-shrink-0 overflow-y-auto">
-      {/* ── 标题 ── */}
-      <div className="px-4 pt-4 pb-3">
-        <h2 className="text-[14px] font-semibold text-white">Generate 3D Model</h2>
-        <p className="text-[12px] text-[#555558] mt-0.5">Upload a photo to create a 3D mesh</p>
+    <aside className="w-[360px] bg-[#101826] border-r border-[#263348] flex flex-col flex-shrink-0 overflow-y-auto text-[#dbe4f3]">
+      <div className="px-6 pt-4 pb-3">
+        <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.18em] text-[#8fa0bb]">
+          <Sparkles size={15} className="text-[#7c89ff]" />
+          Pixal3D Workspace
+        </div>
+        <h2 className="mt-1.5 text-[21px] leading-tight font-bold text-white">Image to 3D</h2>
       </div>
 
-      <div className="mx-4 border-t border-[#252527]" />
-
-      {/* ── HD / Smart ── */}
-      <div className="flex gap-2 px-4 pt-3 pb-2">
-        <button
-          onClick={() => setMode('hd')}
-          className={`flex-1 py-1.5 rounded-lg text-[13px] font-medium transition-all ${
-            mode === 'hd' ? 'bg-white text-black' : 'bg-[#252527] text-[#888] hover:text-white'
-          }`}
-        >
-          HD Model
-        </button>
-        <button
-          onClick={() => setMode('smart')}
-          className={`flex-1 py-1.5 rounded-lg text-[13px] font-medium transition-all flex items-center justify-center gap-1 ${
-            mode === 'smart' ? 'bg-white text-black' : 'bg-[#252527] text-[#888] hover:text-white'
-          }`}
-        >
-          Smart Mesh
-          <Zap size={12} className={mode === 'smart' ? 'text-yellow-500 fill-yellow-500' : 'text-yellow-400'} />
-        </button>
-      </div>
-
-      {/* ── 图片上传区 ── */}
-      <div className="px-4 pb-3">
+      <div className="px-6 pb-4">
         <div
-          className={`relative rounded-xl border-2 border-dashed transition-all cursor-pointer overflow-hidden ${
-            isDragging ? 'border-yellow-400 bg-yellow-400/5' : 'border-[#2e2e31] hover:border-[#3a3a3d]'
-          } ${imagePreview ? 'h-48' : 'h-36'}`}
+          className={`relative min-h-[150px] rounded-[18px] border transition-all cursor-pointer overflow-hidden ${
+            isDragging
+              ? 'border-[#7c89ff] bg-[#7c89ff]/10'
+              : 'border-[#34435c] bg-[#182234] hover:border-[#566785]'
+          }`}
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
@@ -139,32 +136,32 @@ export default function GeneratePanel({
         >
           {imagePreview ? (
             <>
-              <img src={imagePreview} alt="preview" className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-black/20 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
+              <img src={imagePreview} alt="preview" className="absolute inset-0 h-full w-full object-cover" />
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-4">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1.5 bg-white/90 rounded-lg text-black text-[12px] font-medium"
+                  className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-[#111827]"
                 >
-                  Replace
+                  <UploadCloud size={15} />
+                  Replace Image
                 </button>
               </div>
               <button
                 onClick={clearImage}
-                className="absolute top-2 right-2 w-6 h-6 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center text-white transition-colors"
+                className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
               >
-                <X size={12} />
+                <X size={15} />
               </button>
             </>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full gap-2 select-none">
-              <div className="w-10 h-10 rounded-full bg-[#252527] flex items-center justify-center">
-                <ImageIcon size={18} className="text-[#555558]" />
+            <div className="flex h-full min-h-[150px] flex-col items-center justify-center gap-2.5 px-5 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#202c42] text-[#8fa0bb]">
+                <ImageIcon size={22} />
               </div>
-              <div className="text-center">
-                <p className="text-[13px] text-gray-300 font-medium">Drop image here</p>
-                <p className="text-[11px] text-[#555558] mt-0.5">or click to browse</p>
+              <div>
+                <p className="text-[15px] font-semibold text-white">Drop product photo here</p>
+                <p className="mt-1 text-[12px] text-[#8fa0bb]">JPG, PNG, WEBP up to 20MB</p>
               </div>
-              <p className="text-[10px] text-[#3a3a3d]">JPG · PNG · WEBP · max 20MB</p>
             </div>
           )}
         </div>
@@ -177,93 +174,290 @@ export default function GeneratePanel({
         />
       </div>
 
-      {/* ── 文字提示（可选） ── */}
-      <div className="px-4 pb-3">
-        <label className="text-[11px] text-[#555558] font-medium uppercase tracking-wider">
-          Describe (optional)
-        </label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="e.g. a red ceramic mug, clean background..."
-          rows={2}
-          className="mt-1.5 w-full bg-[#252527] border border-[#2e2e31] rounded-lg px-3 py-2 text-[13px] text-gray-300 placeholder-[#3a3a3d] resize-none focus:outline-none focus:border-[#3a3a3d] transition-colors"
-        />
-      </div>
+      <div className="space-y-4 px-6 pb-5">
+        <section className="space-y-2.5">
+          <PanelTitle icon={Box} label="Generation" />
+          <FieldLabel label="Target Resolution" />
+          <select
+            value={settings.resolution}
+            onChange={(e) => updateSetting('resolution', Number(e.target.value) as 1024 | 1536)}
+            className="w-full rounded-2xl border border-[#34435c] bg-[#182234] px-4 py-3 text-[15px] font-semibold text-white outline-none focus:border-[#7c89ff]"
+          >
+            <option value={1024}>1024 Balanced</option>
+            <option value={1536}>1536 High Quality</option>
+          </select>
 
-      {/* ── 高级设置（可折叠） ── */}
-      <div className="px-4 pb-2">
-        <button
-          onClick={() => setShowAdvanced((v) => !v)}
-          className="flex items-center gap-1.5 text-[12px] text-[#555558] hover:text-gray-300 transition-colors w-full"
-        >
-          <span>Advanced Settings</span>
-          {showAdvanced ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-        </button>
-        {showAdvanced && (
-          <div className="mt-2 space-y-2 bg-[#161618] rounded-xl px-3 py-3">
-            {/* 去除背景 */}
+          <div>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Scissors size={13} className="text-[#555558]" />
-                <span className="text-[13px] text-gray-400">Remove Background</span>
-              </div>
-              <Toggle value={removeBg} onChange={setRemoveBg} />
+              <FieldLabel label="Generation Seed" />
+              <span className="text-[13px] font-bold text-[#7c89ff]">
+                {settings.seed >= 0 ? `#${settings.seed}` : 'Random'}
+              </span>
             </div>
-            <p className="text-[11px] text-[#3a3a3d] leading-relaxed">
-              Strip the background before processing — improves quality for photos with busy backgrounds.
-            </p>
+            <div className="flex gap-3">
+              <input
+                type="number"
+                min={-1}
+                max={999999}
+                value={settings.seed}
+                onChange={(e) => updateSetting('seed', Number(e.target.value))}
+                className="min-w-0 flex-1 rounded-2xl border border-[#34435c] bg-[#182234] px-4 py-3 text-[15px] font-semibold text-white outline-none focus:border-[#7c89ff]"
+              />
+              <button
+                type="button"
+                onClick={randomizeSeed}
+                className="flex h-[50px] w-[58px] items-center justify-center rounded-2xl border border-[#34435c] bg-[#182234] text-white hover:border-[#7c89ff]"
+                title="Random seed"
+              >
+                <Dices size={19} />
+              </button>
+            </div>
           </div>
+
+          <div>
+            <div className="flex items-center justify-between">
+              <PanelTitle icon={Camera} label="Camera FOV" compact />
+              <label className="flex items-center gap-2 text-[13px] font-semibold text-[#aab7cc]">
+                <input
+                  type="checkbox"
+                  checked={autoFov}
+                  onChange={(e) => setAutoFov(e.target.checked)}
+                  className="h-4 w-4 accent-[#7c89ff]"
+                />
+                Auto
+              </label>
+            </div>
+            <div className="mt-2 flex gap-3">
+              <input
+                type="number"
+                min={0.02}
+                max={2.97}
+                step={0.01}
+                disabled={autoFov}
+                value={autoFov ? 0.2 : settings.manualFov}
+                onChange={(e) => updateSetting('manualFov', Number(e.target.value))}
+                className="min-w-0 flex-1 rounded-2xl border border-[#34435c] bg-[#182234] px-4 py-3 text-[15px] font-semibold text-white outline-none disabled:text-[#6d7890] focus:border-[#7c89ff]"
+              />
+              <div className="flex h-[50px] w-[74px] items-center justify-center rounded-2xl border border-[#34435c] bg-[#182234] text-[14px] font-semibold text-[#aab7cc]">
+                rad
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <PanelTitle icon={Palette} label="Preview Style" />
+          <div className="grid grid-cols-3 gap-2">
+            {previewStyles.map((style) => (
+              <button
+                key={style.id}
+                type="button"
+                onClick={() => onPreviewStyleChange(style.id)}
+                className={`rounded-xl border px-3 py-2.5 text-[13px] font-semibold transition ${
+                  previewStyle === style.id
+                    ? 'border-[#7c89ff] bg-[#7c89ff] text-white'
+                    : 'border-[#34435c] bg-[#182234] text-[#aab7cc] hover:border-[#566785] hover:text-white'
+                }`}
+              >
+                {style.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <button
+          type="button"
+          onClick={() => setShowPrompt((v) => !v)}
+          className="flex w-full items-center justify-between rounded-2xl border border-[#263348] bg-[#121d2d] px-4 py-3 text-left text-[13px] font-semibold text-[#aab7cc]"
+        >
+          Optional Prompt
+          {showPrompt ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+        {showPrompt && (
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Short hint, material, object type..."
+            rows={2}
+            className="w-full resize-none rounded-2xl border border-[#34435c] bg-[#182234] px-4 py-3 text-[14px] text-white placeholder-[#67758d] outline-none focus:border-[#7c89ff]"
+          />
         )}
+
+        <section className="rounded-[20px] border border-[#263348] bg-[#121d2d] p-4">
+          <button
+            type="button"
+            onClick={() => setShowEngine((v) => !v)}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <PanelTitle icon={Layers3} label="Advanced Engine" compact />
+            {showEngine ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          </button>
+
+          {showEngine && (
+            <div className="mt-4 space-y-5 border-t border-[#263348] pt-4">
+              <RangeField
+                label="SS Guidance"
+                value={settings.ssGuidanceStrength}
+                min={1}
+                max={12}
+                step={0.5}
+                onChange={(value) => updateSetting('ssGuidanceStrength', value)}
+              />
+              <RangeField
+                label="SS Sampling"
+                value={settings.ssSamplingSteps}
+                min={4}
+                max={24}
+                step={1}
+                onChange={(value) => updateSetting('ssSamplingSteps', value)}
+              />
+              <RangeField
+                label="Shape Guidance"
+                value={settings.shapeGuidanceStrength}
+                min={1}
+                max={12}
+                step={0.5}
+                onChange={(value) => updateSetting('shapeGuidanceStrength', value)}
+              />
+              <RangeField
+                label="Shape Sampling"
+                value={settings.shapeSamplingSteps}
+                min={4}
+                max={24}
+                step={1}
+                onChange={(value) => updateSetting('shapeSamplingSteps', value)}
+              />
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FieldLabel label="Mesh Faces" />
+                  <select
+                    value={settings.decimationTarget}
+                    onChange={(e) => updateSetting('decimationTarget', Number(e.target.value))}
+                    className="w-full rounded-xl border border-[#34435c] bg-[#182234] px-3 py-2.5 text-[13px] font-semibold text-white outline-none"
+                  >
+                    <option value={100000}>100K</option>
+                    <option value={250000}>250K</option>
+                    <option value={500000}>500K</option>
+                    <option value={1000000}>1M</option>
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel label="Texture" />
+                  <select
+                    value={settings.textureSize}
+                    onChange={(e) => updateSetting('textureSize', Number(e.target.value) as 512 | 1024 | 2048 | 4096)}
+                    className="w-full rounded-xl border border-[#34435c] bg-[#182234] px-3 py-2.5 text-[13px] font-semibold text-white outline-none"
+                  >
+                    <option value={1024}>1K</option>
+                    <option value={2048}>2K</option>
+                    <option value={4096}>4K</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
 
-      {/* ── 错误提示 ── */}
       {error && (
-        <div className="mx-4 mb-3 rounded-xl bg-red-950/60 border border-red-800/40 p-3">
+        <div className="mx-6 mb-4 rounded-2xl border border-red-500/30 bg-red-950/40 p-3">
           <div className="flex items-start gap-2">
-            <AlertCircle size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
-            <p className="text-[12px] text-red-300 leading-relaxed flex-1">{error}</p>
-            <button onClick={onClearError} className="text-red-400 hover:text-red-200 flex-shrink-0">
-              <X size={13} />
+            <AlertCircle size={15} className="mt-0.5 flex-shrink-0 text-red-300" />
+            <p className="flex-1 text-[12px] leading-relaxed text-red-200">{error}</p>
+            <button onClick={onClearError} className="text-red-300 hover:text-white">
+              <X size={14} />
             </button>
           </div>
         </div>
       )}
 
-      {/* ── 无图片提示 ── */}
-      {!imageFile && !error && (
-        <div className="mx-4 mb-3 rounded-xl bg-[#1a1a1c] border border-[#252527] px-3 py-2.5">
-          <p className="text-[12px] text-[#3a3a3d] text-center">
-            Upload an image to enable generation
-          </p>
-        </div>
-      )}
-
       <div className="flex-1" />
 
-      {/* ── 生成按钮 ── */}
-      <div className="p-4 pt-2">
+      <div className="sticky bottom-0 border-t border-[#263348] bg-[#101826]/95 p-6 backdrop-blur">
         <button
           onClick={handleGenerate}
           disabled={!canGenerate}
-          className={`w-full flex items-center justify-center gap-2 py-3 rounded-full text-[14px] font-bold transition-all ${
+          className={`flex w-full items-center justify-center gap-3 rounded-[22px] py-4 text-[16px] font-extrabold transition ${
             isGenerating
-              ? 'bg-yellow-400/60 text-black/60 cursor-not-allowed'
+              ? 'bg-[#7c89ff]/60 text-white/70 cursor-not-allowed'
               : canGenerate
-              ? 'bg-yellow-400 hover:bg-yellow-300 text-black active:scale-[0.98] shadow-lg shadow-yellow-400/20'
-              : 'bg-[#252527] text-[#555558] cursor-not-allowed'
+              ? 'bg-[#7c89ff] text-white shadow-[0_18px_38px_rgba(124,137,255,0.28)] hover:bg-[#8d98ff] active:scale-[0.98]'
+              : 'bg-[#1a2537] text-[#62718a] cursor-not-allowed'
           }`}
         >
           {isGenerating ? (
             <>
-              <span className="w-4 h-4 border-2 border-black/30 border-t-black/80 rounded-full animate-spin" />
-              <span>Generating…</span>
+              <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              Generating
             </>
           ) : (
-            <span>Generate 3D Model</span>
+            <>
+              <Zap size={20} />
+              Start Generation
+            </>
           )}
         </button>
       </div>
+    </aside>
+  )
+}
+
+function PanelTitle({
+  icon: Icon,
+  label,
+  compact = false,
+}: {
+  icon: ComponentType<{ size?: number; className?: string }>
+  label: string
+  compact?: boolean
+}) {
+  return (
+    <div className={`flex items-center gap-2 font-bold text-[#cfd8e8] ${compact ? 'text-[14px]' : 'text-[15px]'}`}>
+      <Icon size={compact ? 15 : 17} className="text-[#8fa0bb]" />
+      <span>{label}</span>
+    </div>
+  )
+}
+
+function FieldLabel({ label }: { label: string }) {
+  return (
+    <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.16em] text-[#8190aa]">
+      {label}
+    </label>
+  )
+}
+
+function RangeField({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[13px] font-bold text-[#dbe4f3]">{label}</span>
+        <span className="text-[13px] font-extrabold text-[#8d98ff]">{value}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-[#7c89ff]"
+      />
     </div>
   )
 }

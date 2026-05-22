@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback } from 'react'
 import Navbar from './components/Navbar'
-import GeneratePanel from './components/GeneratePanel'
+import GeneratePanel, { type PreviewStyle } from './components/GeneratePanel'
 import Viewport3D, { type Viewport3DHandle } from './components/Viewport3D'
 import RightPanel, { type Asset } from './components/RightPanel'
-import { generateModel, ModelApiNotReadyError } from './services/modelApi'
+import { generateModel, ModelApiNotReadyError, type GenerateSettings } from './services/modelApi'
 import './index.css'
 
 type AppState = 'idle' | 'generating' | 'done' | 'error'
@@ -14,6 +14,7 @@ export default function App() {
   const [progress, setProgress] = useState(0)
   const [assets, setAssets] = useState<Asset[]>([])
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null)
+  const [previewStyle, setPreviewStyle] = useState<PreviewStyle>('color')
 
   const viewportRef = useRef<Viewport3DHandle>(null)
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -36,7 +37,7 @@ export default function App() {
   // ── 核心生成入口 ──────────────────────────────────────────────────
   // 当模型 API 就绪时，只需修改 src/services/modelApi.ts 即可
   const handleGenerate = useCallback(
-    async (imageFile: File, prompt: string, mode: 'hd' | 'smart') => {
+    async (imageFile: File, prompt: string, settings: GenerateSettings) => {
       setAppState('generating')
       setError(null)
       startProgress()
@@ -45,8 +46,7 @@ export default function App() {
         const result = await generateModel({
           image: imageFile,
           prompt: prompt || undefined,
-          mode,
-          removeBackground: true, // 默认开启去背景
+          settings,
         })
 
         stopProgress(100)
@@ -105,7 +105,7 @@ export default function App() {
   }, [])
 
   return (
-    <div className="flex h-screen bg-[#111113] text-white overflow-hidden">
+    <div className="flex h-screen bg-[#0d1420] text-white overflow-hidden">
       <div className="flex flex-col flex-1 min-w-0">
         <Navbar />
 
@@ -116,6 +116,8 @@ export default function App() {
             isGenerating={appState === 'generating'}
             error={error}
             onClearError={() => { setError(null); setAppState('idle') }}
+            previewStyle={previewStyle}
+            onPreviewStyleChange={setPreviewStyle}
           />
 
           {/* 3D 视口 */}
@@ -124,6 +126,7 @@ export default function App() {
             isEmpty={appState === 'idle'}
             isLoading={appState === 'generating'}
             loadingProgress={progress}
+            previewStyle={previewStyle}
           />
 
           {/* 右侧资产面板 */}

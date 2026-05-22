@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Settings, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
+import type { PreviewStyle } from './GeneratePanel'
 
 /** 外部可调用的方法 — 后续接入模型时使用 */
 export interface Viewport3DHandle {
@@ -23,15 +24,20 @@ interface Props {
   isLoading?: boolean
   /** 生成进度 0–100 */
   loadingProgress?: number
+  /** 视口预览风格 */
+  previewStyle?: PreviewStyle
 }
 
 const Viewport3D = forwardRef<Viewport3DHandle, Props>(
-  ({ isEmpty = true, isLoading = false, loadingProgress = 0 }, ref) => {
+  ({ isEmpty = true, isLoading = false, loadingProgress = 0, previewStyle = 'normal' }, ref) => {
   const mountRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const controlsRef = useRef<OrbitControls | null>(null)
+  const ambientRef = useRef<THREE.AmbientLight | null>(null)
+  const dirLightRef = useRef<THREE.DirectionalLight | null>(null)
+  const fillLightRef = useRef<THREE.DirectionalLight | null>(null)
   const frameRef = useRef<number>(0)
   const hasModelRef = useRef(false)
 
@@ -84,6 +90,12 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
         removeLoadedModels()
         const model = gltf.scene
         model.userData.isLoadedModel = true
+        model.traverse((child) => {
+          child.userData.isLoadedModel = true
+          if (child instanceof THREE.Mesh) {
+            child.userData.originalMaterial = child.material
+          }
+        })
 
         // 自动居中 + 适配相机距离
         const box = new THREE.Box3().setFromObject(model)
@@ -94,6 +106,7 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
         model.position.sub(center)
         sceneRef.current!.add(model)
         hasModelRef.current = true
+        applyPreviewStyle(previewStyle)
 
         const dist = maxDim * 2.5
         cameraRef.current!.position.set(dist, dist * 0.7, dist)
@@ -105,6 +118,56 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
       undefined,
       (err) => console.error('[Viewport3D] 模型加载失败:', err)
     )
+  }
+
+  function applyPreviewStyle(style: PreviewStyle) {
+    const scene = sceneRef.current
+    if (!scene) return
+
+    const styleConfig: Record<PreviewStyle, {
+      background: number
+      ambient: number
+      key: number
+      fill: number
+      clay?: number
+      normal?: boolean
+    }> = {
+      normal: { background: 0x111113, ambient: 0xffffff, key: 0xffffff, fill: 0x8890ff },
+      color: { background: 0x121826, ambient: 0xffffff, key: 0xffffff, fill: 0x7c89ff },
+      clay: { background: 0x16181d, ambient: 0xf7efe4, key: 0xffffff, fill: 0xd2b48c, clay: 0xc9c1b6 },
+      forest: { background: 0x0f1b17, ambient: 0xe4f5dd, key: 0xb9f29b, fill: 0x4f8f76 },
+      sunset: { background: 0x221518, ambient: 0xffe1c2, key: 0xff9a62, fill: 0x6b6dff },
+      blue: { background: 0x0f172a, ambient: 0xdbeafe, key: 0x93c5fd, fill: 0x818cf8 },
+    }
+    const config = styleConfig[style]
+
+    scene.background = new THREE.Color(config.background)
+    if (ambientRef.current) ambientRef.current.color.setHex(config.ambient)
+    if (dirLightRef.current) dirLightRef.current.color.setHex(config.key)
+    if (fillLightRef.current) fillLightRef.current.color.setHex(config.fill)
+
+    scene.traverse((child) => {
+      if (!(child instanceof THREE.Mesh) || !child.userData.isLoadedModel) {
+        return
+      }
+
+      if (style === 'normal') {
+        child.material = new THREE.MeshNormalMaterial()
+        return
+      }
+
+      if (style === 'clay') {
+        child.material = new THREE.MeshStandardMaterial({
+          color: config.clay,
+          roughness: 0.82,
+          metalness: 0.02,
+        })
+        return
+      }
+
+      const original = child.userData.originalMaterial
+      if (original) child.material = original
+    })
   }
 
   useEffect(() => {
@@ -148,15 +211,18 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
     // ── Lights ──
     const ambient = new THREE.AmbientLight(0xffffff, 0.55)
     scene.add(ambient)
+    ambientRef.current = ambient
 
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.2)
     dirLight.position.set(5, 8, 5)
     dirLight.castShadow = true
     scene.add(dirLight)
+    dirLightRef.current = dirLight
 
     const fillLight = new THREE.DirectionalLight(0x8890ff, 0.3)
     fillLight.position.set(-4, 2, -4)
     scene.add(fillLight)
+    fillLightRef.current = fillLight
 
     // ── Grid ──
     const grid = new THREE.GridHelper(30, 60, 0x222225, 0x1e1e21)
@@ -192,8 +258,12 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
     }
   }, [])
 
+  useEffect(() => {
+    applyPreviewStyle(previewStyle)
+  }, [previewStyle])
+
   return (
-    <div className="flex-1 relative bg-[#111113] overflow-hidden min-w-0">
+    <div className="flex-1 relative bg-[#0d1420] overflow-hidden min-w-0">
       {/* Three.js 挂载点 */}
       <div ref={mountRef} className="absolute inset-0" />
 
@@ -206,31 +276,31 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
       {isEmpty && !isLoading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
           <svg viewBox="0 0 64 64" className="w-16 h-16 mb-5 opacity-[0.15]" fill="none">
-            <polygon points="32,5 59,55 5,55" stroke="#f5c518" strokeWidth="3" strokeLinejoin="round" />
-            <polygon points="32,24 46,52 18,52" fill="#f5c518" opacity="0.8" />
+            <path d="M32 6 55 19.5v25L32 58 9 44.5v-25L32 6Z" stroke="#7c89ff" strokeWidth="3" />
+            <path d="M32 6v52M9 19.5 32 33l23-13.5" stroke="#7c89ff" strokeWidth="3" />
           </svg>
-          <p className="text-[18px] font-semibold text-[#44444a]">No Model Yet</p>
-          <p className="text-[13px] text-[#33333a] mt-1.5">Upload an image and click Generate</p>
+          <p className="text-[18px] font-semibold text-[#53627a]">No Model Yet</p>
+          <p className="text-[13px] text-[#3f4d63] mt-1.5">Upload an image and start generation</p>
         </div>
       )}
 
       {/* ── 生成中遮罩 ── */}
       {isLoading && (
-        <div className="absolute inset-0 bg-[#111113]/85 flex flex-col items-center justify-center z-20 backdrop-blur-[2px]">
+        <div className="absolute inset-0 bg-[#0d1420]/85 flex flex-col items-center justify-center z-20 backdrop-blur-[2px]">
           {/* 脉冲 logo */}
           <div className="relative mb-6">
             <svg viewBox="0 0 64 64" className="w-14 h-14" fill="none">
               <polygon
                 points="32,5 59,55 5,55"
-                stroke="#f5c518"
+                stroke="#7c89ff"
                 strokeWidth="2.5"
                 strokeLinejoin="round"
                 className="animate-pulse"
               />
-              <polygon points="32,24 46,52 18,52" fill="#f5c518" opacity="0.7" className="animate-pulse" />
+              <path d="M32 20 45 28v16l-13 8-13-8V28l13-8Z" fill="#7c89ff" opacity="0.7" className="animate-pulse" />
             </svg>
             {/* 旋转环 */}
-            <div className="absolute -inset-3 border-2 border-yellow-400/20 border-t-yellow-400/60 rounded-full animate-spin" />
+            <div className="absolute -inset-3 border-2 border-[#7c89ff]/20 border-t-[#7c89ff]/70 rounded-full animate-spin" />
           </div>
 
           <p className="text-[14px] font-semibold text-gray-200 mb-1">AI Generating 3D Model</p>
@@ -239,7 +309,7 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
           {/* 进度条 */}
           <div className="w-52 h-1.5 bg-[#2a2a2d] rounded-full overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-yellow-500 to-yellow-300 rounded-full transition-all duration-500"
+              className="h-full bg-gradient-to-r from-[#7c89ff] to-[#9aa4ff] rounded-full transition-all duration-500"
               style={{ width: `${Math.max(4, loadingProgress)}%` }}
             />
           </div>
