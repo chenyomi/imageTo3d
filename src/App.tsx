@@ -114,6 +114,7 @@ export default function App() {
           <GeneratePanel
             onGenerate={handleGenerate}
             isGenerating={appState === 'generating'}
+            hasModel={appState === 'done'}
             error={error}
             onClearError={() => { setError(null); setAppState('idle') }}
             previewStyle={previewStyle}

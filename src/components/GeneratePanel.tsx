@@ -25,6 +25,7 @@ export type PreviewStyle = 'normal' | 'clay' | 'color' | 'forest' | 'sunset' | '
 export interface GeneratePanelProps {
   onGenerate: (image: File, prompt: string, settings: GenerateSettings) => void
   isGenerating: boolean
+  hasModel: boolean
   error: string | null
   onClearError: () => void
   previewStyle: PreviewStyle
@@ -43,6 +44,7 @@ const previewStyles: Array<{ id: PreviewStyle; label: string }> = [
 export default function GeneratePanel({
   onGenerate,
   isGenerating,
+  hasModel,
   error,
   onClearError,
   previewStyle,
@@ -59,7 +61,7 @@ export default function GeneratePanel({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const setImage = useCallback((file: File) => {
-    if (!file.type.startsWith('image/')) return
+    if (!file.type.startsWith('image/') && file.type !== 'image/svg+xml') return
     setImageFile(file)
     setImagePreview((prev) => {
       if (prev) URL.revokeObjectURL(prev)
@@ -160,7 +162,7 @@ export default function GeneratePanel({
               </div>
               <div>
                 <p className="text-[15px] font-semibold text-white">Drop product photo here</p>
-                <p className="mt-1 text-[12px] text-[#8fa0bb]">JPG, PNG, WEBP up to 20MB</p>
+                <p className="mt-1 text-[12px] text-[#8fa0bb]">JPG, PNG, WEBP, SVG up to 20MB</p>
               </div>
             </div>
           )}
@@ -168,7 +170,7 @@ export default function GeneratePanel({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/jpeg,image/png,image/webp,image/svg+xml"
           className="hidden"
           onChange={handleFileChange}
         />
@@ -245,25 +247,27 @@ export default function GeneratePanel({
           </div>
         </section>
 
-        <section className="space-y-3">
-          <PanelTitle icon={Palette} label="Preview Style" />
-          <div className="grid grid-cols-3 gap-2">
-            {previewStyles.map((style) => (
-              <button
-                key={style.id}
-                type="button"
-                onClick={() => onPreviewStyleChange(style.id)}
-                className={`rounded-xl border px-3 py-2.5 text-[13px] font-semibold transition ${
-                  previewStyle === style.id
-                    ? 'border-[#7c89ff] bg-[#7c89ff] text-white'
-                    : 'border-[#34435c] bg-[#182234] text-[#aab7cc] hover:border-[#566785] hover:text-white'
-                }`}
-              >
-                {style.label}
-              </button>
-            ))}
-          </div>
-        </section>
+        {hasModel && (
+          <section className="space-y-3">
+            <PanelTitle icon={Palette} label="Preview Style" />
+            <div className="grid grid-cols-3 gap-2">
+              {previewStyles.map((style) => (
+                <button
+                  key={style.id}
+                  type="button"
+                  onClick={() => onPreviewStyleChange(style.id)}
+                  className={`rounded-xl border px-3 py-2.5 text-[13px] font-semibold transition ${
+                    previewStyle === style.id
+                      ? 'border-[#7c89ff] bg-[#7c89ff] text-white'
+                      : 'border-[#34435c] bg-[#182234] text-[#aab7cc] hover:border-[#566785] hover:text-white'
+                  }`}
+                >
+                  {style.label}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         <button
           type="button"
@@ -394,7 +398,7 @@ export default function GeneratePanel({
           ) : (
             <>
               <Zap size={20} />
-              Start Generation
+              {hasModel ? 'Regenerate' : 'Start Generation'}
             </>
           )}
         </button>
