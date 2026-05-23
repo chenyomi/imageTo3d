@@ -1,84 +1,12 @@
 const app = getApp()
 const MODEL_LOAD_TIMEOUT = 15000
+const XR_ASSET_ID = 'preview-model'
 
 function ensureGlbLocalPath(assetId) {
   const baseDir = wx.env?.USER_DATA_PATH || ''
   if (!baseDir) return ''
   const fileName = assetId ? `model-preview-${assetId}.glb` : `model-preview-${Date.now()}.glb`
   return `${baseDir}/${fileName}`
-}
-
-function readUint32LE(bytes, offset) {
-  return bytes[offset]
-    | (bytes[offset + 1] << 8)
-    | (bytes[offset + 2] << 16)
-    | (bytes[offset + 3] << 24)
-}
-
-function decodeAscii(bytes, start, length) {
-  let text = ''
-  for (let idx = start; idx < start + length; idx += 1) {
-    text += String.fromCharCode(bytes[idx])
-  }
-  return text
-}
-
-function decodeUtf8(bytes, start, length) {
-  if (typeof TextDecoder !== 'undefined') {
-    return new TextDecoder('utf-8').decode(bytes.slice(start, start + length))
-  }
-
-  let text = ''
-  for (let idx = start; idx < start + length; idx += 1) {
-    text += String.fromCharCode(bytes[idx])
-  }
-  try {
-    return decodeURIComponent(escape(text))
-  } catch (_) {
-    return text
-  }
-}
-
-function inspectGlbCompatibility(buffer) {
-  const bytes = new Uint8Array(buffer)
-  if (bytes.length < 20) {
-    return { ok: false, reason: 'GLB 文件过小，无法解析。' }
-  }
-
-  const magic = decodeAscii(bytes, 0, 4)
-  if (magic !== 'glTF') {
-    return { ok: false, reason: '文件头不是有效的 GLB。' }
-  }
-
-  const jsonChunkLength = readUint32LE(bytes, 12)
-  const jsonChunkType = decodeAscii(bytes, 16, 4)
-  if (jsonChunkType !== 'JSON') {
-    return { ok: false, reason: 'GLB 缺少 JSON chunk，无法识别。' }
-  }
-
-  try {
-    const jsonText = decodeUtf8(bytes, 20, jsonChunkLength).replace(/\u0000+$/, '')
-    const gltf = JSON.parse(jsonText)
-    const extensionsRequired = gltf.extensionsRequired || []
-    const images = gltf.images || []
-    const hasWebpExtension = extensionsRequired.includes('EXT_texture_webp')
-    const hasWebpImage = images.some((image) => image?.mimeType === 'image/webp')
-
-    if (hasWebpExtension || hasWebpImage) {
-      return {
-        ok: false,
-        reason: '这个 GLB 内嵌了 WebP 纹理，并声明了 EXT_texture_webp。小程序原生 model 组件通常不支持这种贴图扩展，所以会加载失败。',
-        details: {
-          extensionsRequired,
-          imageMimeTypes: images.map((image) => image?.mimeType).filter(Boolean),
-        },
-      }
-    }
-
-    return { ok: true, details: { extensionsRequired } }
-  } catch (_) {
-    return { ok: false, reason: 'GLB 元数据解析失败，无法判断兼容性。' }
-  }
 }
 
 Page({
@@ -92,6 +20,7 @@ Page({
     loading: true,
     loadErrorText: '',
     isDevtools: false,
+    sceneReady: false,
   },
 
   onLoad(options = {}) {
@@ -113,20 +42,17 @@ Page({
         hasError: true,
         loading: false,
         isDevtools,
-        loadErrorText: '这个路径是电脑本地路径，小程序运行环境访问不到。请使用网络 GLB 地址，或先通过小程序下载到临时文件后再预览。',
+        loadErrorText: '这个路径是电脑本地路径，小程序运行环境访问不到。请使用网络 GLB 地址，或先通过小程序下载到本地后再预览。',
       })
       return
     }
 
-    const shouldUseCachedFile = Boolean(cachedLocalPath) && !sourceUrl.startsWith('http')
-    const shouldRenderCachedFile = Boolean(cachedLocalPath) && sourceUrl.startsWith('http')
-
     this.setData({
-      glbUrl: shouldUseCachedFile || shouldRenderCachedFile ? cachedLocalPath : '',
+      glbUrl: cachedLocalPath || '',
       sourceUrl,
       assetId,
       name,
-      ready: shouldUseCachedFile || shouldRenderCachedFile,
+      ready: Boolean(cachedLocalPath),
       hasError: !cachedLocalPath && !sourceUrl,
       loading: Boolean(cachedLocalPath) || Boolean(sourceUrl),
       loadErrorText: cachedLocalPath || sourceUrl ? '' : '当前没有拿到可用的 GLB 地址，无法在小程序内预览。',
@@ -137,17 +63,18 @@ Page({
       wx.setNavigationBarTitle({ title: name })
     }
 
-    this._didRetryFromSource = false
+    this._activeAssetUrl = ''
+    this.scene = null
 
     if (cachedLocalPath) {
-      this.startLoadTimeout()
+      this.tryLoadXrAsset(cachedLocalPath)
       return
     }
 
     if (!sourceUrl) return
     if (!sourceUrl.startsWith('http')) {
       this.setData({ glbUrl: sourceUrl, ready: true, loading: true })
-      this.startLoadTimeout()
+      this.tryLoadXrAsset(sourceUrl)
       return
     }
 
@@ -156,6 +83,16 @@ Page({
 
   onUnload() {
     this.clearLoadTimeout()
+    this.scene = null
+    this._activeAssetUrl = ''
+  },
+
+  handleSceneReady(event) {
+    this.scene = event.detail?.value || null
+    this.setData({ sceneReady: Boolean(this.scene) })
+    if (this.data.glbUrl) {
+      this.tryLoadXrAsset(this.data.glbUrl)
+    }
   },
 
   startLoadTimeout() {
@@ -164,8 +101,8 @@ Page({
       const { isDevtools } = this.data
       this.handleModelError(
         isDevtools
-          ? '预览超时：微信开发者工具里的 model 组件经常不触发加载回调，建议在真机上预览；模型文件仍可下载。'
-          : '预览超时：模型文件已拿到，但原生预览组件在规定时间内未完成加载。你可以先下载 GLB 验证文件是否正常。',
+          ? '预览超时：微信开发者工具里的 xr-frame 渲染可能比真机更不稳定，建议在真机上再次验证。'
+          : '预览超时：xr-frame 没有在规定时间内完成模型加载。你可以先下载 GLB 验证文件是否正常。',
       )
     }, MODEL_LOAD_TIMEOUT)
   },
@@ -175,6 +112,29 @@ Page({
       clearTimeout(this._loadTimeout)
       this._loadTimeout = null
     }
+  },
+
+  tryLoadXrAsset(glbUrl) {
+    if (!glbUrl) return
+    if (!this.scene?.assets?.loadAsset) return
+    if (this._activeAssetUrl === glbUrl) return
+
+    this._activeAssetUrl = glbUrl
+    this.setData({ ready: true, loading: true, hasError: false, loadErrorText: '' })
+    this.startLoadTimeout()
+
+    this.scene.assets.loadAsset({
+      type: 'gltf',
+      assetId: XR_ASSET_ID,
+      src: glbUrl,
+      options: {},
+    }).then(() => {
+      this.clearLoadTimeout()
+      this.setData({ loading: false, hasError: false, loadErrorText: '' })
+    }).catch((err) => {
+      this._activeAssetUrl = ''
+      this.handleModelError(`xr-frame 模型加载失败：${err?.message || err?.errMsg || 'unknown error'}`)
+    })
   },
 
   prepareLocalPreviewFile(sourceUrl, assetId) {
@@ -213,18 +173,6 @@ Page({
           return
         }
 
-        try {
-          const buffer = fs.readFileSync(targetPath)
-          const compatibility = inspectGlbCompatibility(buffer)
-          if (!compatibility.ok) {
-            this.handleModelError(compatibility.reason)
-            return
-          }
-        } catch (_) {
-          this.handleModelError('本地预览文件检查失败，无法确认模型是否兼容小程序原生预览。')
-          return
-        }
-
         this.setData({
           glbUrl: targetPath,
           ready: true,
@@ -233,9 +181,8 @@ Page({
           loadErrorText: '',
         })
 
-        this.startLoadTimeout()
-
         app.updateAsset(assetId, { localGlbPath: targetPath })
+        this.tryLoadXrAsset(targetPath)
       },
       fail: () => {
         this.handleModelError('模型文件下载失败，通常是该域名未加入小程序 downloadFile 合法域名。')
@@ -243,27 +190,14 @@ Page({
     })
   },
 
-  handleModelLoad() {
-    this.clearLoadTimeout()
-    this.setData({ loading: false, hasError: false, loadErrorText: '' })
-  },
-
   handleModelError(customText) {
-    const { glbUrl, sourceUrl, assetId } = this.data
-    const isCachedLocalFile = Boolean(glbUrl) && !String(glbUrl).startsWith('http')
-
-    if (!customText && isCachedLocalFile && sourceUrl && !this._didRetryFromSource) {
-      this._didRetryFromSource = true
-      this.prepareLocalPreviewFile(sourceUrl, assetId)
-      return
-    }
-
     this.clearLoadTimeout()
+    this._activeAssetUrl = ''
 
     this.setData({
       loading: false,
       hasError: true,
-      loadErrorText: customText || '模型加载失败，通常是 GLB 文件格式不兼容，或该域名未加入小程序 downloadFile 合法域名。',
+      loadErrorText: customText || '模型加载失败，通常是 GLB 文件损坏、纹理扩展不兼容，或该域名未加入小程序 downloadFile 合法域名。',
     })
   },
 

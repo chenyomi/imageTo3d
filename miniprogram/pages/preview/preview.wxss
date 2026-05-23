@@ -10,7 +10,7 @@ page { background: #0d1420; }
 
 .viewer-shell { position: relative; min-height: 100vh; overflow: hidden; }
 
-.model-viewer { width: 100%; height: 100vh; }
+.xr-scene { width: 100%; height: 100vh; }
 .viewer-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(160,178,211,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(160,178,211,0.04) 1px, transparent 1px); background-size: 26px 26px; pointer-events: none; z-index: 1; }
 
 .viewer-topbar { position: absolute; top: 18px; left: 16px; right: 16px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; z-index: 3; }

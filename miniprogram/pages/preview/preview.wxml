@@ -3,15 +3,24 @@
   <view class="page-aurora page-aurora-right"></view>
 
   <view wx:if="{{ready}}" class="viewer-shell">
-    <model
-      class="model-viewer"
-      src="{{glbUrl}}"
-      auto-rotate
-      camera-target="0m 0m 0m"
-      background-color="#09111c"
-      bindload="handleModelLoad"
-      binderror="handleModelError"
-    ></model>
+    <xr-scene
+      id="xr-scene"
+      class="xr-scene"
+      bind:ready="handleSceneReady"
+    >
+      <xr-node position="0 -0.6 0" scale="1 1 1" rotation="0 180 0">
+        <xr-gltf model="preview-model"></xr-gltf>
+      </xr-node>
+
+      <xr-camera
+        id="main-camera"
+        position="0 1.4 3.8"
+        clear-color="0.035 0.067 0.11 1"
+      ></xr-camera>
+
+      <xr-light type="ambient" color="1 1 1" intensity="1.1"></xr-light>
+      <xr-light type="directional" rotation="35 45 0" color="1 1 1" intensity="2.2"></xr-light>
+    </xr-scene>
 
     <view class="viewer-grid"></view>
 
@@ -30,11 +39,11 @@
         <text class="viewer-meta-value">{{loading ? '加载中' : '已就绪'}}</text>
       </view>
       <view class="viewer-meta-block center">
-        <image class="viewer-orb" src="/assets/scene-orb.svg" mode="aspectFit" />
+        <image class="viewer-orb" src="/assets/logo-cube.svg" mode="aspectFit" />
       </view>
       <view class="viewer-meta-block align-right">
-        <text class="viewer-meta-label">格式</text>
-        <text class="viewer-meta-value">GLB</text>
+        <text class="viewer-meta-label">引擎</text>
+        <text class="viewer-meta-value">XR Frame</text>
       </view>
     </view>
 
@@ -56,8 +65,8 @@
           </view>
         </view>
         <view class="fallback-headline">
-          <text class="fallback-title">当前模型暂时无法原生预览</text>
-          <text class="fallback-subtitle">文件已生成成功，但小程序内核没有完成这一份 GLB 的渲染。</text>
+          <text class="fallback-title">当前模型暂时无法完成 3D 预览</text>
+          <text class="fallback-subtitle">文件已生成成功，但 xr-frame 没有顺利完成这一份 GLB 的场景加载。</text>
         </view>
       </view>
 
