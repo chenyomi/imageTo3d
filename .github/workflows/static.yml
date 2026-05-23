@@ -54,8 +54,6 @@ jobs:
           VITE_GRADIO_URL: ${{ secrets.VITE_GRADIO_URL }}
           # GitHub Gist ID，用于前端实时读取 CI 自动更新的实例列表
           VITE_GIST_ID: ${{ secrets.GIST_ID }}
-          # Cloudflare Worker 固定代理（可选，解决域名变化问题）
-          VITE_PROXY_URL: ${{ secrets.VITE_PROXY_URL }}
 
       # 仅 main 分支才上传 Pages artifact
       - name: Setup Pages

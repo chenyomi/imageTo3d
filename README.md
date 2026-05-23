@@ -1,5 +1,20 @@
 # React + TypeScript + Vite
 
+## API Routing (Current)
+
+- Web app: `src/services/modelApi.ts` resolves URL in this order:
+  - `VITE_GRADIO_URL`
+  - Gist dynamic instance list (`VITE_GIST_ID`)
+- Mini program: `miniprogram/services/gradio.js` uses the same strategy:
+  - Gist dynamic URL first
+  - fixed `hf.space` URL fallback
+- Worker proxy fallback has been removed from both clients.
+
+### Build-time env vars
+
+- `VITE_GRADIO_URL`: optional fixed Gradio endpoint
+- `VITE_GIST_ID`: optional Gist ID for dynamic instance list
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

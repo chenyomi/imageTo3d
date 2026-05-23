@@ -1,0 +1,81 @@
+<view class="page">
+  <view class="page-aurora page-aurora-left"></view>
+  <view class="page-aurora page-aurora-right"></view>
+
+  <view wx:if="{{ready}}" class="viewer-shell">
+    <model
+      class="model-viewer"
+      src="{{glbUrl}}"
+      auto-rotate
+      camera-target="0m 0m 0m"
+      background-color="#09111c"
+      bindload="handleModelLoad"
+      binderror="handleModelError"
+    ></model>
+
+    <view class="viewer-grid"></view>
+
+    <view class="viewer-topbar">
+      <view class="viewer-back" bindtap="goBack">返回</view>
+      <view class="viewer-title-wrap">
+        <text class="viewer-eyebrow">3D Viewer</text>
+        <text class="viewer-title">{{name}}</text>
+      </view>
+      <view class="viewer-download" bindtap="downloadModel">下载</view>
+    </view>
+
+    <view class="viewer-bottom-panel" wx:if="{{!hasError}}">
+      <view class="viewer-meta-block">
+        <text class="viewer-meta-label">状态</text>
+        <text class="viewer-meta-value">{{loading ? '加载中' : '已就绪'}}</text>
+      </view>
+      <view class="viewer-meta-block center">
+        <image class="viewer-orb" src="/assets/scene-orb.svg" mode="aspectFit" />
+      </view>
+      <view class="viewer-meta-block align-right">
+        <text class="viewer-meta-label">格式</text>
+        <text class="viewer-meta-value">GLB</text>
+      </view>
+    </view>
+
+    <view class="viewer-loading" wx:if="{{loading && !hasError}}">
+      <view class="viewer-spinner"></view>
+      <text class="viewer-loading-text">模型加载中...</text>
+    </view>
+  </view>
+
+  <view wx:if="{{hasError || !ready}}" class="fallback">
+    <view class="fallback-card">
+      <view class="fallback-badge">Preview Unavailable</view>
+
+      <view class="fallback-header">
+        <view class="fallback-icon-wrap">
+          <view class="fallback-icon-ring"></view>
+          <view class="fallback-icon-core">
+            <image class="fallback-logo" src="/assets/logo-cube.svg" mode="aspectFit" />
+          </view>
+        </view>
+        <view class="fallback-headline">
+          <text class="fallback-title">当前模型暂时无法原生预览</text>
+          <text class="fallback-subtitle">文件已生成成功，但小程序内核没有完成这一份 GLB 的渲染。</text>
+        </view>
+      </view>
+
+      <view class="fallback-diagnosis">
+        <view class="fallback-row">
+          <text class="fallback-row-label">当前状态</text>
+          <text class="fallback-row-value danger">需要兼容处理</text>
+        </view>
+        <view class="fallback-row detail">
+          <text class="fallback-row-label">诊断信息</text>
+          <text class="fallback-text">{{loadErrorText || '请稍后从历史记录重新打开。'}}</text>
+        </view>
+      </view>
+
+      <view class="fallback-actions">
+        <view class="fallback-btn secondary" bindtap="downloadModel">下载 GLB</view>
+        <view class="fallback-btn" bindtap="goBack">返回历史</view>
+      </view>
+    </view>
+  </view>
+</view>

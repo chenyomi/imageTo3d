@@ -1,3 +1,0 @@
-name = "pixal3d-proxy"
-main = "worker/proxy.js"
-compatibility_date = "2024-01-01"

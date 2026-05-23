@@ -39,11 +39,12 @@ export class ModelApiNotReadyError extends Error {
 }
 
 // ── URL 管理 ─────────────────────────────────────────────────
-// 优先级：Gist(CI自动) > 本地JSON > VITE_GRADIO_URL env var
+// 优先级：Gist(CI自动轮询分流) > VITE_GRADIO_URL env var
 
 export interface GradioInstance { url: string }
 
 let _instances: GradioInstance[] | null = null
+let _instanceCursor = 0
 
 export async function fetchGradioInstances(): Promise<GradioInstance[]> {
   if (_instances !== null) return _instances
@@ -70,17 +71,17 @@ export async function fetchGradioInstances(): Promise<GradioInstance[]> {
 
 /** 解析当前应使用的 Gradio URL（内部使用） */
 async function resolveGradioUrl(): Promise<string> {
-  // 1. 本地直连（开发用，优先级最高）
+  // 1. Gist 动态地址（CI 自动更新，按实例轮询分流）
+  const list = await fetchGradioInstances()
+  if (list.length > 0) {
+    const picked = list[_instanceCursor % list.length]
+    _instanceCursor += 1
+    return picked.url.replace(/\/$/, '')
+  }
+
+  // 2. 固定直连地址（本地/线上兜底）
   const direct = (import.meta.env.VITE_GRADIO_URL as string | undefined) ?? ''
   if (direct) return direct.replace(/\/$/, '')
-
-  // 2. Gist 动态地址（优先于固定代理，避免旧代理失效导致线上不可用）
-  const list = await fetchGradioInstances()
-  if (list.length > 0) return list[0].url
-
-  // 3. Worker 固定代理（兜底）
-  const proxy = (import.meta.env.VITE_PROXY_URL as string | undefined) ?? ''
-  if (proxy) return proxy.replace(/\/$/, '')
 
   throw new ModelApiNotReadyError()
 }

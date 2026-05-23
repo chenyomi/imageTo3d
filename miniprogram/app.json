@@ -1,12 +1,13 @@
 {
   "pages": [
     "pages/index/index",
-    "pages/assets/assets"
+    "pages/assets/assets",
+    "pages/preview/preview"
   ],
   "tabBar": {
     "color": "#71809a",
     "selectedColor": "#7c89ff",
-    "backgroundColor": "#101826",
+    "backgroundColor": "#0f1724",
     "borderStyle": "black",
     "list": [
       { "pagePath": "pages/index/index", "text": "生成" },
@@ -14,10 +15,10 @@
     ]
   },
   "window": {
-    "navigationBarBackgroundColor": "#101826",
+    "navigationBarBackgroundColor": "#0f1724",
     "navigationBarTitleText": "ImageTo3D",
     "navigationBarTextStyle": "white",
-    "backgroundColor": "#0d1420",
+    "backgroundColor": "#0f1724",
     "backgroundTextStyle": "dark"
   },
   "style": "v2",
