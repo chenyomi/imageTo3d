@@ -48,22 +48,18 @@ let _instances: GradioInstance[] | null = null
 export async function fetchGradioInstances(): Promise<GradioInstance[]> {
   if (_instances !== null) return _instances
 
-  // 1. GitHub Gist API（无需用户名，实时读取 CI 更新的最新地址）
+  // 1. Gist raw URL（无速率限制，直接读最新内容）
   const gistId = (import.meta.env.VITE_GIST_ID as string | undefined) || ''
   if (gistId) {
     try {
       const res = await fetch(
-        `https://api.github.com/gists/${gistId}`,
-        { credentials: 'omit', cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } },
+        `https://gist.githubusercontent.com/chenyomi/${gistId}/raw/gradio-urls.json`,
+        { credentials: 'omit', cache: 'no-store' },
       )
       if (res.ok) {
-        const gist = await res.json() as { files?: Record<string, { content?: string }> }
-        const file = gist.files?.['gradio-urls.json']
-        if (file?.content) {
-          const data = JSON.parse(file.content) as { instances?: GradioInstance[] }
-          _instances = data.instances ?? []
-          if (_instances.length > 0) return _instances
-        }
+        const data = await res.json() as { instances?: GradioInstance[] }
+        _instances = data.instances ?? []
+        if (_instances.length > 0) return _instances
       }
     } catch { /* ignore */ }
   }
