@@ -70,10 +70,15 @@ export async function fetchGradioInstances(): Promise<GradioInstance[]> {
 
 /** 解析当前应使用的 Gradio URL（内部使用） */
 async function resolveGradioUrl(): Promise<string> {
-  // 优先使用 Worker 固定代理（推荐，无 CORS / 域名变化问题）
+  // 1. 本地直连（开发用，优先级最高）
+  const direct = (import.meta.env.VITE_GRADIO_URL as string | undefined) ?? ''
+  if (direct) return direct.replace(/\/$/, '')
+
+  // 2. Worker 固定代理（生产用）
   const proxy = (import.meta.env.VITE_PROXY_URL as string | undefined) ?? ''
   if (proxy) return proxy.replace(/\/$/, '')
 
+  // 3. Gist 动态地址
   const list = await fetchGradioInstances()
   if (list.length > 0) return list[0].url
   throw new ModelApiNotReadyError()
