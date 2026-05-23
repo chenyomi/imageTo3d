@@ -33,7 +33,7 @@ export default function RightPanel({
   const activeAsset = assets.find((a) => a.id === activeAssetId) ?? null
 
   return (
-    <div className="w-[280px] bg-[#101826] border-l border-[#263348] flex flex-col flex-shrink-0">
+    <div className="w-full lg:w-[260px] bg-[#101826] lg:border-l border-[#263348] flex flex-col flex-shrink-0">
       {/* ── 标题 ── */}
       <div className="px-4 pt-4 pb-3 flex items-center justify-between">
         <div>
@@ -125,17 +125,6 @@ export default function RightPanel({
             })}
           </div>
         )}
-      </div>
-
-      {/* ── 上传区 ── */}
-      <div className="p-3 border-t border-[#263348]">
-        <button
-          onClick={() => uploadRef.current?.click()}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-dashed border-[#34435c] hover:border-[#7c89ff] text-[#71809a] hover:text-gray-200 transition-colors text-[12px] font-semibold"
-        >
-          <Upload size={14} />
-          <span>Import GLB / OBJ / FBX</span>
-        </button>
       </div>
 
       <input

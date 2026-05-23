@@ -3,7 +3,6 @@ import type { ComponentType, MouseEvent } from 'react'
 import {
   AlertCircle,
   Box,
-  Camera,
   ChevronDown,
   ChevronUp,
   Dices,
@@ -82,7 +81,6 @@ export default function GeneratePanel({
   const [showPrompt, setShowPrompt] = useState(false)
   const [showEngine, setShowEngine] = useState(false)
   const [settings, setSettings] = useState<GenerateSettings>(DEFAULT_GENERATE_SETTINGS)
-  const [autoFov, setAutoFov] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const setImage = useCallback(async (file: File) => {
@@ -142,16 +140,13 @@ export default function GeneratePanel({
 
   const handleGenerate = () => {
     if (!imageFile || isGenerating) return
-    onGenerate(imageFile, prompt.trim(), {
-      ...settings,
-      manualFov: autoFov ? -1 : settings.manualFov,
-    })
+    onGenerate(imageFile, prompt.trim(), { ...settings, manualFov: -1 })
   }
 
   const canGenerate = !!imageFile && !isGenerating
 
   return (
-    <aside className="w-[360px] bg-[#101826] border-r border-[#263348] flex flex-col flex-shrink-0 overflow-y-auto text-[#dbe4f3]">
+    <aside className="w-full lg:w-[320px] bg-[#101826] lg:border-r border-[#263348] flex flex-col flex-shrink-0 overflow-y-auto text-[#dbe4f3]">
       <div className="px-6 pt-4 pb-3">
         <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.18em] text-[#8fa0bb]">
           <Sparkles size={15} className="text-[#7c89ff]" />
@@ -249,36 +244,6 @@ export default function GeneratePanel({
               >
                 <Dices size={19} />
               </button>
-            </div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between">
-              <PanelTitle icon={Camera} label="Camera FOV" compact />
-              <label className="flex items-center gap-2 text-[13px] font-semibold text-[#aab7cc]">
-                <input
-                  type="checkbox"
-                  checked={autoFov}
-                  onChange={(e) => setAutoFov(e.target.checked)}
-                  className="h-4 w-4 accent-[#7c89ff]"
-                />
-                Auto
-              </label>
-            </div>
-            <div className="mt-2 flex gap-3">
-              <input
-                type="number"
-                min={0.02}
-                max={2.97}
-                step={0.01}
-                disabled={autoFov}
-                value={autoFov ? 0.2 : settings.manualFov}
-                onChange={(e) => updateSetting('manualFov', Number(e.target.value))}
-                className="min-w-0 flex-1 rounded-2xl border border-[#34435c] bg-[#182234] px-4 py-3 text-[15px] font-semibold text-white outline-none disabled:text-[#6d7890] focus:border-[#7c89ff]"
-              />
-              <div className="flex h-[50px] w-[74px] items-center justify-center rounded-2xl border border-[#34435c] bg-[#182234] text-[14px] font-semibold text-[#aab7cc]">
-                rad
-              </div>
             </div>
           </div>
         </section>

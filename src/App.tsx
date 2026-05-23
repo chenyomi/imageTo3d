@@ -3,10 +3,11 @@ import Navbar from './components/Navbar'
 import GeneratePanel, { type PreviewStyle } from './components/GeneratePanel'
 import Viewport3D, { type Viewport3DHandle } from './components/Viewport3D'
 import RightPanel, { type Asset } from './components/RightPanel'
-import { generateModel, ModelApiNotReadyError, type GenerateSettings } from './services/modelApi'
+import { generateModel, type GenerateSettings } from './services/modelApi'
 import './index.css'
 
 type AppState = 'idle' | 'generating' | 'done' | 'error'
+type MobileTab = 'generate' | 'view' | 'assets'
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>('idle')
@@ -15,6 +16,7 @@ export default function App() {
   const [assets, setAssets] = useState<Asset[]>([])
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null)
   const [previewStyle, setPreviewStyle] = useState<PreviewStyle>('color')
+  const [mobileTab, setMobileTab] = useState<MobileTab>('generate')
 
   const viewportRef = useRef<Viewport3DHandle>(null)
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -50,11 +52,8 @@ export default function App() {
         })
 
         stopProgress(100)
-
-        // 加载到视口
         viewportRef.current?.loadModelFromUrl(result.modelUrl)
 
-        // 添加到资产列表
         const asset: Asset = {
           id: Date.now().toString(),
           name: imageFile.name.replace(/\.[^.]+$/, ''),
@@ -65,16 +64,10 @@ export default function App() {
         setAssets((prev) => [asset, ...prev])
         setActiveAssetId(asset.id)
         setAppState('done')
+        setMobileTab('view')
       } catch (err) {
         stopProgress(0)
-        const isNotReady = err instanceof ModelApiNotReadyError
-        setError(
-          isNotReady
-            ? '⚠️ Model API not configured yet.\nEdit src/services/modelApi.ts to connect your model.'
-            : err instanceof Error
-            ? err.message
-            : String(err),
-        )
+        setError(err instanceof Error ? err.message : String(err))
         setAppState('error')
       }
     },
@@ -105,12 +98,12 @@ export default function App() {
   }, [])
 
   return (
-    <div className="flex h-screen bg-[#0d1420] text-white overflow-hidden">
-      <div className="flex flex-col flex-1 min-w-0">
-        <Navbar />
+    <div className="flex flex-col h-[100dvh] bg-[#0d1420] text-white overflow-hidden">
+      <Navbar />
 
-        <div className="flex flex-1 min-h-0">
-          {/* 左侧生成面板 */}
+      <div className="flex flex-1 min-h-0">
+        {/* 左侧生成面板 */}
+        <div className={`${mobileTab === 'generate' ? 'flex' : 'hidden'} lg:flex flex-col w-full lg:w-auto`}>
           <GeneratePanel
             onGenerate={handleGenerate}
             isGenerating={appState === 'generating'}
@@ -120,8 +113,10 @@ export default function App() {
             previewStyle={previewStyle}
             onPreviewStyleChange={setPreviewStyle}
           />
+        </div>
 
-          {/* 3D 视口 */}
+        {/* 3D 视口 */}
+        <div className={`${mobileTab === 'view' ? 'flex' : 'hidden'} lg:flex flex-1 min-w-0`}>
           <Viewport3D
             ref={viewportRef}
             isEmpty={appState === 'idle'}
@@ -129,16 +124,43 @@ export default function App() {
             loadingProgress={progress}
             previewStyle={previewStyle}
           />
+        </div>
 
-          {/* 右侧资产面板 */}
+        {/* 右侧资产面板 */}
+        <div className={`${mobileTab === 'assets' ? 'flex' : 'hidden'} lg:flex flex-col w-full lg:w-auto`}>
           <RightPanel
             assets={assets}
             activeAssetId={activeAssetId}
-            onSelectAsset={handleSelectAsset}
-            onUploadModel={handleUploadModel}
+            onSelectAsset={(asset) => { handleSelectAsset(asset); setMobileTab('view') }}
+            onUploadModel={(file) => { handleUploadModel(file); setMobileTab('view') }}
           />
         </div>
       </div>
+
+      {/* 移动端底部 Tab 栏 */}
+      <nav className="lg:hidden flex border-t border-[#263348] bg-[#101826]">
+        {([
+          { id: 'generate', label: '生成', icon: '✦' },
+          { id: 'view',     label: '预览', icon: '◈' },
+          { id: 'assets',   label: '历史', icon: '⊞', badge: assets.length > 0 ? assets.length : undefined },
+        ] as { id: MobileTab; label: string; icon: string; badge?: number }[]).map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setMobileTab(tab.id)}
+            className={`relative flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-semibold transition-colors ${
+              mobileTab === tab.id ? 'text-[#7c89ff]' : 'text-[#71809a]'
+            }`}
+          >
+            <span className="text-[18px] leading-none">{tab.icon}</span>
+            <span>{tab.label}</span>
+            {tab.badge !== undefined && (
+              <span className="absolute top-1.5 right-[calc(50%-14px)] flex h-4 min-w-4 items-center justify-center rounded-full bg-[#7c89ff] px-1 text-[9px] font-bold text-white">
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }

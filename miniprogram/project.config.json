@@ -1,0 +1,29 @@
+{
+  "description": "微信小程序项目配置",
+  "appid": "wx78ddd1097cab9dc6",
+  "projectname": "imageto3d",
+  "miniprogramRoot": "",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": false,
+    "minified": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "condition": {},
+  "compileType": "miniprogram",
+  "libVersion": "3.16.1",
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "editorSetting": {
+    "tabIndent": "insertSpaces",
+    "tabSize": 2
+  }
+}

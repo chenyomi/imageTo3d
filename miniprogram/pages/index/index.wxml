@@ -1,0 +1,72 @@
+<view class="page">
+
+  <!-- 顶部标题 -->
+  <view class="header">
+    <view class="logo-wrap">
+      <view class="logo-icon">◈</view>
+      <text class="logo-text">ImageTo3D</text>
+      <text class="logo-badge">PIXAL3D</text>
+    </view>
+  </view>
+
+  <!-- 图片上传区 -->
+  <view class="section">
+    <view class="upload-box {{imageUri ? 'has-image' : ''}}" bindtap="chooseImage">
+      <block wx:if="{{imageUri}}">
+        <image class="preview-img" src="{{imageUri}}" mode="aspectFill" />
+        <view class="preview-overlay">
+          <view class="replace-btn">换图</view>
+        </view>
+        <view class="clear-btn" catchtap="clearImage">✕</view>
+      </block>
+      <block wx:else>
+        <view class="upload-placeholder">
+          <text class="upload-icon">🖼</text>
+          <text class="upload-title">点击选择图片</text>
+          <text class="upload-hint">JPG · PNG · WEBP</text>
+        </view>
+      </block>
+    </view>
+  </view>
+
+  <!-- 参数设置 -->
+  <view class="section">
+    <view class="field">
+      <text class="field-label">分辨率</text>
+      <picker mode="selector" range="{{resolutionOptions}}" value="{{resolutionIdx}}" bindchange="onResolutionChange">
+        <view class="picker-btn">{{resolutionOptions[resolutionIdx]}} <text class="picker-arrow">▾</text></view>
+      </picker>
+    </view>
+    <view class="field">
+      <text class="field-label">随机种子</text>
+      <view class="seed-row">
+        <input class="seed-input" type="number" value="{{seed}}" bindinput="onSeedInput" placeholder="-1 随机" />
+        <view class="dice-btn" bindtap="randomSeed">🎲</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 错误提示 -->
+  <view class="error-box" wx:if="{{error}}">
+    <text class="error-text">{{error}}</text>
+    <view class="error-close" bindtap="clearError">✕</view>
+  </view>
+
+  <!-- 进度提示 -->
+  <view class="progress-box" wx:if="{{loading}}">
+    <view class="spinner"></view>
+    <text class="progress-text">{{progressText}}</text>
+  </view>
+
+  <!-- 生成按钮 -->
+  <view class="footer">
+    <view
+      class="generate-btn {{!imageUri || loading ? 'disabled' : ''}}"
+      bindtap="handleGenerate"
+    >
+      <text wx:if="{{loading}}">生成中...</text>
+      <text wx:else>⚡ 开始生成</text>
+    </view>
+  </view>
+
+</view>

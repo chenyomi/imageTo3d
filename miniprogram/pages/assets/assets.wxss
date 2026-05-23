@@ -1,0 +1,21 @@
+page { background: #0d1420; color: #dbe4f3; }
+
+.page { padding: 20px 16px 40px; }
+
+.header { margin-bottom: 20px; display: flex; align-items: baseline; gap: 8px; }
+.title { font-size: 20px; font-weight: 700; color: #fff; }
+.subtitle { font-size: 13px; color: #71809a; }
+
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 0; gap: 10px; }
+.empty-icon { font-size: 48px; color: #34435c; }
+.empty-title { font-size: 15px; color: #71809a; }
+.empty-hint { font-size: 13px; color: #52617a; }
+
+.list { display: flex; flex-direction: column; gap: 10px; }
+.asset-item { display: flex; align-items: center; gap: 12px; background: #121d2d; border: 1px solid #263348; border-radius: 14px; padding: 14px; }
+.asset-icon { font-size: 24px; color: #7c89ff; width: 40px; height: 40px; background: #182234; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.asset-info { flex: 1; min-width: 0; }
+.asset-name { display: block; font-size: 14px; font-weight: 600; color: #dbe4f3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-time { display: block; font-size: 11px; color: #71809a; margin-top: 3px; }
+.asset-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.action-btn { font-size: 12px; font-weight: 600; color: #7c89ff; background: #182234; padding: 6px 14px; border-radius: 20px; }

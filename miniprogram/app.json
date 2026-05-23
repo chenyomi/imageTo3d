@@ -1,0 +1,25 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/assets/assets"
+  ],
+  "tabBar": {
+    "color": "#71809a",
+    "selectedColor": "#7c89ff",
+    "backgroundColor": "#101826",
+    "borderStyle": "black",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "生成" },
+      { "pagePath": "pages/assets/assets", "text": "历史" }
+    ]
+  },
+  "window": {
+    "navigationBarBackgroundColor": "#101826",
+    "navigationBarTitleText": "ImageTo3D",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#0d1420",
+    "backgroundTextStyle": "dark"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}
