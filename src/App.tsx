@@ -103,7 +103,7 @@ export default function App() {
 
       <div className="flex flex-1 min-h-0">
         {/* 左侧生成面板 */}
-        <div className={`${mobileTab === 'generate' ? 'flex' : 'hidden'} lg:flex flex-col w-full lg:w-auto`}>
+        <div className={`${mobileTab === 'generate' ? 'flex' : 'hidden'} lg:flex flex-col w-full lg:w-auto min-h-0`}>
           <GeneratePanel
             onGenerate={handleGenerate}
             isGenerating={appState === 'generating'}

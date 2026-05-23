@@ -146,7 +146,7 @@ export default function GeneratePanel({
   const canGenerate = !!imageFile && !isGenerating
 
   return (
-    <aside className="w-full lg:w-[320px] bg-[#101826] lg:border-r border-[#263348] flex flex-col flex-shrink-0 overflow-y-auto text-[#dbe4f3]">
+    <aside className="w-full lg:w-[320px] bg-[#101826] lg:border-r border-[#263348] flex flex-col flex-shrink-0 min-h-0 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] [touch-action:pan-y] text-[#dbe4f3]">
       <div className="px-6 pt-4 pb-3">
         <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.18em] text-[#8fa0bb]">
           <Sparkles size={15} className="text-[#7c89ff]" />
