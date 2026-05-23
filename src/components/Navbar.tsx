@@ -13,10 +13,7 @@ export default function Navbar() {
           PIXAL3D
         </span>
       </div>
-
-      <div className="ml-auto text-[12px] font-medium text-[#71809a]">
-        Image source / Engine controls / GLB export
-      </div>
     </nav>
   )
 }
+

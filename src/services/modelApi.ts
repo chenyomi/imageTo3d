@@ -7,11 +7,79 @@
 
 import { Client } from '@gradio/client'
 
-// ── 配置 ─────────────────────────────────────────────────────
+// ── CORS 修复 ────────────────────────────────────────────────
+// @gradio/client 硬编码 credentials:'include'，Gradio Live 不返回
+// Access-Control-Allow-Credentials:true → 预检失败。补丁强制 omit。
+;(function patchFetch() {
+  if (typeof window === 'undefined') return
+  const prev = window.fetch as typeof fetch & { __gradio_patched?: boolean }
+  if (prev.__gradio_patched) return
+  const orig = window.fetch.bind(window)
+  const next = function (input: RequestInfo | URL, init?: RequestInit) {
+    const url =
+      typeof input === 'string' ? input
+      : input instanceof URL ? input.toString()
+      : (input as Request).url
+    if (url.includes('.gradio.live') || url.includes('.hf.space')) {
+      return orig(input, { ...init, credentials: 'omit' })
+    }
+    return orig(input, init)
+  } as typeof fetch & { __gradio_patched?: boolean }
+  next.__gradio_patched = true
+  window.fetch = next
+})()
 
-const GRADIO_URL =
-  (import.meta.env.VITE_GRADIO_URL as string | undefined) ||
-  'https://bd921b1cf789ef3ea5.gradio.live'
+// ── 错误类型 ─────────────────────────────────────────────────
+
+export class ModelApiNotReadyError extends Error {
+  constructor(msg?: string) {
+    super(msg ?? 'Gradio 服务器暂不可用，请等待 CI 自动更新实例地址（每天 10:00 UTC+8）。')
+    this.name = 'ModelApiNotReadyError'
+  }
+}
+
+// ── URL 管理 ─────────────────────────────────────────────────
+// 优先级：Gist(CI自动) > 本地JSON > VITE_GRADIO_URL env var
+
+export interface GradioInstance { url: string }
+
+let _instances: GradioInstance[] | null = null
+
+export async function fetchGradioInstances(): Promise<GradioInstance[]> {
+  if (_instances !== null) return _instances
+
+  // 1. GitHub Gist API（无需用户名，实时读取 CI 更新的最新地址）
+  const gistId = (import.meta.env.VITE_GIST_ID as string | undefined) || ''
+  if (gistId) {
+    try {
+      const res = await fetch(
+        `https://api.github.com/gists/${gistId}`,
+        { credentials: 'omit', cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } },
+      )
+      if (res.ok) {
+        const gist = await res.json() as { files?: Record<string, { content?: string }> }
+        const file = gist.files?.['gradio-urls.json']
+        if (file?.content) {
+          const data = JSON.parse(file.content) as { instances?: GradioInstance[] }
+          _instances = data.instances ?? []
+          if (_instances.length > 0) return _instances
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  _instances = []
+  return _instances
+}
+
+/** 解析当前应使用的 Gradio URL（内部使用） */
+async function resolveGradioUrl(): Promise<string> {
+  const list = await fetchGradioInstances()
+  if (list.length > 0) return list[0].url
+  throw new ModelApiNotReadyError()
+}
+
+// ── 配置 ─────────────────────────────────────────────────────
 
 // ── 类型定义 ────────────────────────────────────────────────
 
@@ -62,7 +130,8 @@ export const DEFAULT_GENERATE_SETTINGS: GenerateSettings = {
  * 3. /extract_glb  — 从状态提取 GLB 文件
  */
 export async function generateModel(params: GenerateParams): Promise<GenerateResult> {
-  const client = await Client.connect(GRADIO_URL)
+  const gradioUrl = await resolveGradioUrl()
+  const client = await Client.connect(gradioUrl)
   const sessionId = crypto.randomUUID()
   const settings = { ...DEFAULT_GENERATE_SETTINGS, ...params.settings }
   const seed =
@@ -131,15 +200,4 @@ export async function generateModel(params: GenerateParams): Promise<GenerateRes
   return { modelUrl: URL.createObjectURL(blob) }
 }
 
-// ── 错误类型 ─────────────────────────────────────────────────
 
-export class ModelApiNotReadyError extends Error {
-  constructor(msg?: string) {
-    super(
-      msg ??
-        'Model API not configured.\n' +
-          'Open src/services/modelApi.ts and fill in your endpoint.',
-    )
-    this.name = 'ModelApiNotReadyError'
-  }
-}

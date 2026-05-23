@@ -52,6 +52,8 @@ jobs:
           VITE_BASE_URL: /${{ github.event.repository.name }}/
           # Gradio API 地址，在仓库 Settings → Secrets 中配置
           VITE_GRADIO_URL: ${{ secrets.VITE_GRADIO_URL }}
+          # GitHub Gist ID，用于前端实时读取 CI 自动更新的实例列表
+          VITE_GIST_ID: ${{ secrets.GIST_ID }}
 
       # 仅 main 分支才上传 Pages artifact
       - name: Setup Pages

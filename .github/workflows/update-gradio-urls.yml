@@ -1,0 +1,37 @@
+name: Update Gradio Live URLs
+
+on:
+  schedule:
+    # 测试用：每分钟运行一次（测完改回 '0 2 * * *'）
+    - cron: '* * * * *'
+  # 允许在 GitHub Actions 页面手动触发
+  workflow_dispatch:
+
+# 只需读权限，不再需要 commit 代码
+permissions:
+  contents: read
+
+jobs:
+  update-urls:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm install playwright
+          npx playwright install chromium --with-deps
+
+      - name: Fetch Gradio Live URLs → update Gist
+        env:
+          # GITHUB_TOKEN 由 Actions 自动注入，无需额外配置
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 在仓库 Settings → Secrets → Actions 中添加 GIST_ID
+          GIST_ID: ${{ secrets.GIST_ID }}
+        run: node scripts/fetch-gradio-urls.mjs
