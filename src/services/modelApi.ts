@@ -74,13 +74,14 @@ async function resolveGradioUrl(): Promise<string> {
   const direct = (import.meta.env.VITE_GRADIO_URL as string | undefined) ?? ''
   if (direct) return direct.replace(/\/$/, '')
 
-  // 2. Worker 固定代理（生产用）
+  // 2. Gist 动态地址（优先于固定代理，避免旧代理失效导致线上不可用）
+  const list = await fetchGradioInstances()
+  if (list.length > 0) return list[0].url
+
+  // 3. Worker 固定代理（兜底）
   const proxy = (import.meta.env.VITE_PROXY_URL as string | undefined) ?? ''
   if (proxy) return proxy.replace(/\/$/, '')
 
-  // 3. Gist 动态地址
-  const list = await fetchGradioInstances()
-  if (list.length > 0) return list[0].url
   throw new ModelApiNotReadyError()
 }
 
