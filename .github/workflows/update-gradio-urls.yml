@@ -2,8 +2,8 @@ name: Update Gradio Live URLs
 
 on:
   schedule:
-    # 测试用：每分钟运行一次（测完改回 '0 2 * * *'）
-    - cron: '* * * * *'
+    # 每小时运行一次
+    - cron: '0 * * * *'
   # 允许在 GitHub Actions 页面手动触发
   workflow_dispatch:
 
