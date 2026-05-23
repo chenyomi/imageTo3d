@@ -1,40 +1,30 @@
 import { useState, useRef, useCallback } from 'react'
 import Navbar from './components/Navbar'
+import EmbeddedPreviewPage from './components/EmbeddedPreviewPage'
 import GeneratePanel, { type PreviewStyle } from './components/GeneratePanel'
 import Viewport3D, { type Viewport3DHandle } from './components/Viewport3D'
 import RightPanel, { type Asset } from './components/RightPanel'
-import { generateModel, type GenerateSettings } from './services/modelApi'
+import { generateModel, type GenerateProgress, type GenerateSettings } from './services/modelApi'
 import './index.css'
 
 type AppState = 'idle' | 'generating' | 'done' | 'error'
 type MobileTab = 'generate' | 'view' | 'assets'
 
 export default function App() {
+  const searchParams = new URLSearchParams(window.location.search)
+  if (searchParams.get('mode') === 'embed-preview') {
+    return <EmbeddedPreviewPage />
+  }
+
   const [appState, setAppState] = useState<AppState>('idle')
   const [error, setError] = useState<string | null>(null)
-  const [progress, setProgress] = useState(0)
+  const [progressInfo, setProgressInfo] = useState<GenerateProgress | null>(null)
   const [assets, setAssets] = useState<Asset[]>([])
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null)
   const [previewStyle, setPreviewStyle] = useState<PreviewStyle>('color')
   const [mobileTab, setMobileTab] = useState<MobileTab>('generate')
 
   const viewportRef = useRef<Viewport3DHandle>(null)
-  const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // ── 进度条模拟（真实接口替换后可移除） ──────────────────────────
-  const startProgress = () => {
-    setProgress(0)
-    progressTimer.current = setInterval(() => {
-      setProgress((p) => (p >= 88 ? 88 : p + Math.random() * 10 + 2))
-    }, 700)
-  }
-  const stopProgress = (final = 100) => {
-    if (progressTimer.current) {
-      clearInterval(progressTimer.current)
-      progressTimer.current = null
-    }
-    setProgress(final)
-  }
 
   // ── 核心生成入口 ──────────────────────────────────────────────────
   // 当模型 API 就绪时，只需修改 src/services/modelApi.ts 即可
@@ -42,17 +32,18 @@ export default function App() {
     async (imageFile: File, prompt: string, settings: GenerateSettings) => {
       setAppState('generating')
       setError(null)
-      startProgress()
+      setProgressInfo(null)
 
       try {
         const result = await generateModel({
           image: imageFile,
           prompt: prompt || undefined,
           settings,
+          onProgress: setProgressInfo,
         })
 
-        stopProgress(100)
-        viewportRef.current?.loadModelFromUrl(result.modelUrl)
+        setProgressInfo((prev) => prev ? { ...prev, progress: 100, detail: 'Loading model preview...' } : prev)
+        await viewportRef.current?.loadModelFromUrl(result.modelUrl)
 
         const asset: Asset = {
           id: Date.now().toString(),
@@ -63,10 +54,11 @@ export default function App() {
         }
         setAssets((prev) => [asset, ...prev])
         setActiveAssetId(asset.id)
+        setProgressInfo((prev) => prev ? { ...prev, progress: 100, detail: 'Model ready' } : prev)
         setAppState('done')
         setMobileTab('view')
       } catch (err) {
-        stopProgress(0)
+        setProgressInfo(null)
         setError(err instanceof Error ? err.message : String(err))
         setAppState('error')
       }
@@ -77,14 +69,14 @@ export default function App() {
   // ── 点击资产 → 在视口中加载 ─────────────────────────────────────
   const handleSelectAsset = useCallback((asset: Asset) => {
     setActiveAssetId(asset.id)
-    viewportRef.current?.loadModelFromUrl(asset.modelUrl)
+    void viewportRef.current?.loadModelFromUrl(asset.modelUrl)
     setAppState('done')
   }, [])
 
   // ── 直接导入 3D 文件 ─────────────────────────────────────────────
   const handleUploadModel = useCallback((file: File) => {
     const url = URL.createObjectURL(file)
-    viewportRef.current?.loadModelFromFile(file)
+    void viewportRef.current?.loadModelFromFile(file)
 
     const asset: Asset = {
       id: Date.now().toString(),
@@ -121,7 +113,8 @@ export default function App() {
             ref={viewportRef}
             isEmpty={appState === 'idle'}
             isLoading={appState === 'generating'}
-            loadingProgress={progress}
+            loadingProgress={progressInfo?.progress ?? 0}
+            loadingInfo={progressInfo}
             previewStyle={previewStyle}
           />
         </div>

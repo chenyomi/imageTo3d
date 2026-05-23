@@ -15,6 +15,64 @@
 - `VITE_GRADIO_URL`: optional fixed Gradio endpoint
 - `VITE_GIST_ID`: optional Gist ID for dynamic instance list
 
+## Mini Program Preview Compatibility
+
+Current mini program preview can only render GLB files that do not require unsupported texture extensions in WeChat xr-frame.
+
+Verified generated GLB samples from the current Pixal3D service all contain:
+
+- required extension: `EXT_texture_webp`
+- image mime types: `image/webp`
+
+This is why the web app can display the model while the mini program preview stays blank or falls back to an incompatibility message.
+
+### Root Cause
+
+The upstream Pixal3D service hard-codes WebP texture export in `extract_glb_api`.
+
+Relevant upstream repository and call sites:
+
+- `TencentARC/Pixal3D`
+- `app.py`: `glb.export(out_glb, extension_webp=True)`
+- `inference.py`: `glb.export(output_path, extension_webp=True)`
+- `data_toolkit/visualize_pbr_latent.py`: `glb.export(glb_path, extension_webp=True)`
+
+### Required Fix
+
+If mini program in-app preview is required, the service must export GLB without WebP texture extension.
+
+Change the upstream export call from:
+
+```python
+glb.export(out_glb, extension_webp=True)
+```
+
+to:
+
+```python
+glb.export(out_glb, extension_webp=False)
+```
+
+The same change should be applied to the other Pixal3D export call sites listed above.
+
+### What Cannot Fix It
+
+The current frontend and mini program clients cannot solve this by changing request parameters alone.
+
+Current `extract_glb_api` only exposes:
+
+- `state_path`
+- `decimation_target`
+- `texture_size`
+- `session_id`
+
+There is no public parameter for texture format selection.
+
+### Temporary Behavior In This Repo
+
+- web app: still works because browser-side loaders support the generated GLB
+- mini program: now detects incompatible GLB files and shows a clear incompatibility message instead of an endless blank preview
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

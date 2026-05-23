@@ -1,12 +1,4 @@
 {
   "navigationBarTitleText": "模型预览",
-  "disableScroll": true,
-  "renderer": "xr-frame",
-  "usingComponents": {
-    "xr-scene": "plugin://xr-frame/xr-scene",
-    "xr-node": "plugin://xr-frame/xr-node",
-    "xr-camera": "plugin://xr-frame/xr-camera",
-    "xr-light": "plugin://xr-frame/xr-light",
-    "xr-gltf": "plugin://xr-frame/xr-gltf"
-  }
+  "disableScroll": true
 }

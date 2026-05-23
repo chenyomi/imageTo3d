@@ -33,6 +33,78 @@ function requestJson(url) {
   })
 }
 
+function requestJsonWithTimeout(url, timeout = DEFAULT_REQUEST_TIMEOUT) {
+  return new Promise((resolve, reject) => {
+    wx.request({
+      url,
+      method: 'GET',
+      timeout,
+      success(res) {
+        try {
+          const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+          resolve(data)
+        } catch (err) {
+          reject(err)
+        }
+      },
+      fail(err) { reject(err) },
+    })
+  })
+}
+
+function formatOfficialProgress(queue, progress) {
+  if (progress?.stage) {
+    if (progress.step && progress.total) {
+      return `${progress.stage} (${progress.step}/${progress.total})`
+    }
+    return progress.stage
+  }
+
+  if (typeof queue?.position === 'number' && queue.position > 0) {
+    return `排队中，前方还有 ${queue.position} 个请求`
+  }
+
+  if (queue?.gpu_busy) {
+    return 'GPU 执行中，请稍候...'
+  }
+
+  return ''
+}
+
+function startProgressPolling(baseUrl, sessionId, onProgress = () => {}) {
+  let stopped = false
+  let timer = null
+  let lastText = ''
+
+  const poll = async () => {
+    if (stopped) return
+    try {
+      const [queue, progress] = await Promise.all([
+        requestJsonWithTimeout(`${baseUrl}/queue?session_id=${sessionId}`, 8000).catch(() => null),
+        requestJsonWithTimeout(`${baseUrl}/progress?session_id=${sessionId}`, 8000).catch(() => null),
+      ])
+      const text = formatOfficialProgress(queue, progress)
+      if (text && text !== lastText) {
+        lastText = text
+        onProgress(text)
+      }
+    } catch (_) {
+      // ignore polling failure, result SSE is still authoritative
+    } finally {
+      if (!stopped) {
+        timer = setTimeout(poll, 1200)
+      }
+    }
+  }
+
+  poll()
+
+  return () => {
+    stopped = true
+    if (timer) clearTimeout(timer)
+  }
+}
+
 async function resolveGradioUrl() {
   const fallback = trimSlash(FALLBACK_GRADIO_URL)
   if (!GIST_ID) {
@@ -85,10 +157,11 @@ function uploadImage(baseUrl, filePath) {
 /**
  * 调用 Gradio named API
  */
-function gradioCall(baseUrl, apiName, data) {
+function gradioCall(baseUrl, apiName, data, options = {}) {
   const timeout = LONG_RUNNING_APIS.has(apiName)
     ? GENERATION_REQUEST_TIMEOUT
     : DEFAULT_REQUEST_TIMEOUT
+  const { sessionId, onProgress } = options
   return new Promise((resolve, reject) => {
     wx.request({
       url: `${baseUrl}${GRADIO_API_PREFIX}/call/${apiName}`,
@@ -99,11 +172,17 @@ function gradioCall(baseUrl, apiName, data) {
       success(res) {
         const eventId = res.data?.event_id
         if (!eventId) return reject(new Error(`${apiName} 启动失败`))
+
+        const stopPolling = sessionId
+          ? startProgressPolling(baseUrl, sessionId, onProgress)
+          : () => {}
+
         wx.request({
           url: `${baseUrl}${GRADIO_API_PREFIX}/call/${apiName}/${eventId}`,
           method: 'GET',
           timeout,
           success(r) {
+            stopPolling()
             const text = typeof r.data === 'string' ? r.data : JSON.stringify(r.data)
             const lines = text.split('\n').filter(l => l.startsWith('data:'))
             const last = lines[lines.length - 1]
@@ -111,7 +190,10 @@ function gradioCall(baseUrl, apiName, data) {
             try { resolve(JSON.parse(last.slice(5).trim())) }
             catch { reject(new Error(`${apiName} 结果解析失败`)) }
           },
-          fail(err) { reject(new Error(`${apiName} 结果获取失败：${err?.errMsg || 'unknown error'}`)) },
+          fail(err) {
+            stopPolling()
+            reject(new Error(`${apiName} 结果获取失败：${err?.errMsg || 'unknown error'}`))
+          },
         })
       },
       fail(err) { reject(new Error(`${apiName} 请求失败：${err?.errMsg || 'unknown error'}`)) },
@@ -128,7 +210,7 @@ function gradioCall(baseUrl, apiName, data) {
  */
 async function generateModel(localImagePath, options = {}, onProgress = () => {}) {
   const baseUrl = await resolveGradioUrl()
-  const { resolution = 1536, seed = -1 } = options
+  const { resolution = 1024, seed = -1 } = options
   const actualSeed = seed >= 0 ? seed : Math.floor(Math.random() * 100000)
   const sessionId = String(Date.now())
 
@@ -142,11 +224,11 @@ async function generateModel(localImagePath, options = {}, onProgress = () => {}
   const [stateObj] = await gradioCall(baseUrl, 'generate_3d', [
     preprocessed,
     actualSeed, resolution,
-    7.5, 0.7, 12, 5.0,
-    7.5, 0.5, 12, 3.0,
-    1.0, 0.0, 12, 3.0,
+    7.5, 0.7, 8, 5.0,
+    7.5, 0.5, 8, 3.0,
+    1.0, 0.0, 8, 3.0,
     -1, sessionId,
-  ])
+  ], { sessionId, onProgress })
 
   const statePath = typeof stateObj === 'string'
     ? stateObj
@@ -154,7 +236,12 @@ async function generateModel(localImagePath, options = {}, onProgress = () => {}
   if (!statePath) throw new Error('未获取到 3D 状态路径')
 
   onProgress('提取 GLB 文件...')
-  const [glbData] = await gradioCall(baseUrl, 'extract_glb_api', [statePath, 250000, 2048, sessionId])
+  const [glbData] = await gradioCall(
+    baseUrl,
+    'extract_glb_api',
+    [statePath, 250000, 1024, sessionId],
+    { sessionId, onProgress },
+  )
 
   const glbPath = glbData?.url ?? glbData?.path
   if (!glbPath) throw new Error('未获取到 GLB 文件')

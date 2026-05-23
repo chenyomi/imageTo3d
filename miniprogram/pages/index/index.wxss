@@ -66,10 +66,12 @@ page { background: #0d1420; color: #dbe4f3; font-size: 14px; }
 .error-close { color: #fca5a5; font-size: 14px; }
 
 /* progress */
-.progress-box { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; background: rgba(18, 29, 45, 0.92); border: 1px solid rgba(77, 95, 123, 0.34); border-radius: 16px; padding: 14px 16px; margin-bottom: 14px; backdrop-filter: blur(12px); }
+.progress-box { position: relative; z-index: 1; display: flex; align-items: flex-start; gap: 12px; background: rgba(18, 29, 45, 0.92); border: 1px solid rgba(77, 95, 123, 0.34); border-radius: 16px; padding: 14px 16px; margin-bottom: 14px; backdrop-filter: blur(12px); }
 .spinner { width: 18px; height: 18px; border: 2px solid rgba(124,137,255,0.3); border-top-color: #7c89ff; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.progress-text { font-size: 13px; color: #aab7cc; }
+.progress-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.progress-title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: #7c89ff; text-transform: uppercase; }
+.progress-text { font-size: 13px; color: #aab7cc; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 
 /* footer */
 .footer { position: relative; z-index: 2; margin-top: auto; padding-top: 6px; padding-bottom: 56px; }

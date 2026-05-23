@@ -85,7 +85,10 @@
   <!-- 进度提示 -->
   <view class="progress-box" wx:if="{{loading}}">
     <view class="spinner"></view>
-    <text class="progress-text">{{progressText}}</text>
+    <view class="progress-copy">
+      <text class="progress-title">实时进度</text>
+      <text class="progress-text">{{progressText}}</text>
+    </view>
   </view>
 
   <!-- 生成按钮 -->

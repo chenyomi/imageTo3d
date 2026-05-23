@@ -2,15 +2,16 @@ import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { Settings, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
+import { Check, LoaderCircle, Settings, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import type { PreviewStyle } from './GeneratePanel'
+import type { GenerateProgress } from '../services/modelApi'
 
 /** 外部可调用的方法 — 后续接入模型时使用 */
 export interface Viewport3DHandle {
   /** 传入 GLB/GLTF 的 URL 加载模型 */
-  loadModelFromUrl: (url: string) => void
+  loadModelFromUrl: (url: string) => Promise<void>
   /** 传入 File 对象加载模型 */
-  loadModelFromFile: (file: File) => void
+  loadModelFromFile: (file: File) => Promise<void>
   /** 清空场景中的所有模型 */
   clearModels: () => void
   /** 重置摄像机 */
@@ -24,12 +25,14 @@ interface Props {
   isLoading?: boolean
   /** 生成进度 0–100 */
   loadingProgress?: number
+  /** 生成阶段信息 */
+  loadingInfo?: GenerateProgress | null
   /** 视口预览风格 */
   previewStyle?: PreviewStyle
 }
 
 const Viewport3D = forwardRef<Viewport3DHandle, Props>(
-  ({ isEmpty = true, isLoading = false, loadingProgress = 0, previewStyle = 'normal' }, ref) => {
+  ({ isEmpty = true, isLoading = false, loadingProgress = 0, loadingInfo = null, previewStyle = 'normal' }, ref) => {
   const mountRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
@@ -44,11 +47,11 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
   // 暴露给父组件的方法
   useImperativeHandle(ref, () => ({
     loadModelFromUrl(url: string) {
-      loadModel(url)
+      return loadModel(url)
     },
     loadModelFromFile(file: File) {
       const url = URL.createObjectURL(file)
-      loadModel(url, () => URL.revokeObjectURL(url))
+      return loadModel(url, () => URL.revokeObjectURL(url))
     },
     clearModels() {
       removeLoadedModels()
@@ -81,43 +84,52 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
     })
   }
 
-  function loadModel(url: string, onLoaded?: () => void) {
-    if (!sceneRef.current || !cameraRef.current || !controlsRef.current) return
-    const loader = new GLTFLoader()
-    loader.load(
-      url,
-      (gltf) => {
-        removeLoadedModels()
-        const model = gltf.scene
-        model.userData.isLoadedModel = true
-        model.traverse((child) => {
-          child.userData.isLoadedModel = true
-          if (child instanceof THREE.Mesh) {
-            child.userData.originalMaterial = child.material
-          }
-        })
+  function loadModel(url: string, onLoaded?: () => void): Promise<void> {
+    if (!sceneRef.current || !cameraRef.current || !controlsRef.current) {
+      return Promise.reject(new Error('3D viewport is not ready'))
+    }
 
-        // 自动居中 + 适配相机距离
-        const box = new THREE.Box3().setFromObject(model)
-        const center = box.getCenter(new THREE.Vector3())
-        const size = box.getSize(new THREE.Vector3())
-        const maxDim = Math.max(size.x, size.y, size.z)
+    return new Promise((resolve, reject) => {
+      const loader = new GLTFLoader()
+      loader.load(
+        url,
+        (gltf) => {
+          removeLoadedModels()
+          const model = gltf.scene
+          model.userData.isLoadedModel = true
+          model.traverse((child) => {
+            child.userData.isLoadedModel = true
+            if (child instanceof THREE.Mesh) {
+              child.userData.originalMaterial = child.material
+            }
+          })
 
-        model.position.sub(center)
-        sceneRef.current!.add(model)
-        hasModelRef.current = true
-        applyPreviewStyle(previewStyle)
+          // 自动居中 + 适配相机距离
+          const box = new THREE.Box3().setFromObject(model)
+          const center = box.getCenter(new THREE.Vector3())
+          const size = box.getSize(new THREE.Vector3())
+          const maxDim = Math.max(size.x, size.y, size.z)
 
-        const dist = maxDim * 2.5
-        cameraRef.current!.position.set(dist, dist * 0.7, dist)
-        controlsRef.current!.target.set(0, 0, 0)
-        controlsRef.current!.update()
+          model.position.sub(center)
+          sceneRef.current!.add(model)
+          hasModelRef.current = true
+          applyPreviewStyle(previewStyle)
 
-        onLoaded?.()
-      },
-      undefined,
-      (err) => console.error('[Viewport3D] 模型加载失败:', err)
-    )
+          const dist = maxDim * 2.5
+          cameraRef.current!.position.set(dist, dist * 0.7, dist)
+          controlsRef.current!.target.set(0, 0, 0)
+          controlsRef.current!.update()
+
+          onLoaded?.()
+          resolve()
+        },
+        undefined,
+        (err) => {
+          console.error('[Viewport3D] 模型加载失败:', err)
+          reject(err instanceof Error ? err : new Error('Model load failed'))
+        }
+      )
+    })
   }
 
   function applyPreviewStyle(style: PreviewStyle) {
@@ -262,6 +274,12 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
     applyPreviewStyle(previewStyle)
   }, [previewStyle])
 
+  const steps = loadingInfo?.steps ?? []
+  const completedCount = steps.filter((step) => step.state === 'done').length
+  const currentStep = steps.find((step) => step.state === 'active')
+  const loadingTitle = loadingInfo?.title ?? 'AI Generating 3D Model'
+  const loadingDetail = loadingInfo?.detail ?? 'This may take 30–120 seconds…'
+
   return (
     <div className="flex-1 relative bg-[#0d1420] overflow-hidden min-w-0">
       {/* Three.js 挂载点 */}
@@ -287,33 +305,85 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
       {/* ── 生成中遮罩 ── */}
       {isLoading && (
         <div className="absolute inset-0 bg-[#0d1420]/85 flex flex-col items-center justify-center z-20 backdrop-blur-[2px]">
-          {/* 脉冲 logo */}
-          <div className="relative mb-6">
-            <svg viewBox="0 0 64 64" className="w-14 h-14" fill="none">
-              <polygon
-                points="32,5 59,55 5,55"
-                stroke="#7c89ff"
-                strokeWidth="2.5"
-                strokeLinejoin="round"
-                className="animate-pulse"
+          <div className="w-full max-w-[560px] rounded-[28px] border border-white/8 bg-[radial-gradient(circle_at_top,_rgba(124,137,255,0.12),_transparent_34%),linear-gradient(180deg,rgba(10,14,24,0.96),rgba(8,12,20,0.96))] px-6 py-7 shadow-[0_24px_80px_rgba(0,0,0,0.45)] sm:px-8">
+            <div className="mb-6 flex items-start gap-5">
+              <div className="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-full border border-white/8 bg-[#0a1020]/80">
+                <svg viewBox="0 0 80 80" className="h-16 w-16 -rotate-90" aria-hidden="true">
+                  <circle cx="40" cy="40" r="30" stroke="rgba(255,255,255,0.08)" strokeWidth="8" fill="none" />
+                  <circle
+                    cx="40"
+                    cy="40"
+                    r="30"
+                    stroke="#8c94ff"
+                    strokeWidth="8"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeDasharray={188.5}
+                    strokeDashoffset={188.5 * (1 - clampProgress(loadingProgress) / 100)}
+                    className="transition-all duration-500"
+                  />
+                </svg>
+                <LoaderCircle size={18} className="absolute text-[#cfd4ff] animate-spin" />
+              </div>
+
+              <div className="min-w-0 flex-1 pt-2">
+                <div className="flex items-start justify-between gap-4">
+                  <p className="text-[28px] font-semibold leading-tight text-[#8f95ff]">{loadingTitle}</p>
+                  <span className="shrink-0 pt-1 text-[15px] font-semibold text-[#c5cae6]">
+                    {completedCount}/{Math.max(steps.length, 1)}
+                  </span>
+                </div>
+                <p className="mt-2 text-[14px] text-[#a9b4c8]">{loadingDetail}</p>
+              </div>
+            </div>
+
+            <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-[#7c89ff] via-[#71a7ff] to-[#2ed3a6] rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(4, loadingProgress)}%` }}
               />
-              <path d="M32 20 45 28v16l-13 8-13-8V28l13-8Z" fill="#7c89ff" opacity="0.7" className="animate-pulse" />
-            </svg>
-            {/* 旋转环 */}
-            <div className="absolute -inset-3 border-2 border-[#7c89ff]/20 border-t-[#7c89ff]/70 rounded-full animate-spin" />
-          </div>
+            </div>
 
-          <p className="text-[14px] font-semibold text-gray-200 mb-1">AI Generating 3D Model</p>
-          <p className="text-[12px] text-[#555558] mb-5">This may take 30–120 seconds…</p>
+            <div className="mt-2 flex items-center justify-between text-[12px] text-[#8d99b2]">
+              <span>{Math.round(loadingProgress)}%</span>
+              {currentStep ? <span>Current: {currentStep.label}</span> : <span>Finalizing...</span>}
+            </div>
 
-          {/* 进度条 */}
-          <div className="w-52 h-1.5 bg-[#2a2a2d] rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-[#7c89ff] to-[#9aa4ff] rounded-full transition-all duration-500"
-              style={{ width: `${Math.max(4, loadingProgress)}%` }}
-            />
+            {steps.length > 0 && (
+              <div className="mt-6 border-t border-white/10 pt-5">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {steps.map((step) => (
+                    <div key={step.label} className="flex items-center gap-3 text-left">
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+                        step.state === 'done'
+                          ? 'border-[#2ed3a6]/30 bg-[#2ed3a6]/12 text-[#2ed3a6]'
+                          : step.state === 'active'
+                            ? 'border-[#8f95ff]/40 bg-[#8f95ff]/12 text-[#8f95ff]'
+                            : 'border-white/10 bg-white/5 text-[#61708b]'
+                      }`}>
+                        {step.state === 'done' ? (
+                          <Check size={14} />
+                        ) : step.state === 'active' ? (
+                          <LoaderCircle size={14} className="animate-spin" />
+                        ) : (
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                        )}
+                      </span>
+                      <span className={`text-[14px] ${
+                        step.state === 'done'
+                          ? 'text-[#d6f8ef]'
+                          : step.state === 'active'
+                            ? 'text-white'
+                            : 'text-[#7c879d]'
+                      }`}>
+                        {step.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          <p className="text-[11px] text-[#555558] mt-1.5">{Math.round(loadingProgress)}%</p>
         </div>
       )}
 
@@ -342,6 +412,11 @@ const Viewport3D = forwardRef<Viewport3DHandle, Props>(
 
 Viewport3D.displayName = 'Viewport3D'
 export default Viewport3D
+
+function clampProgress(value: number) {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(100, value))
+}
 
 // ── 工具按钮 ──
 function ViewBtn({
