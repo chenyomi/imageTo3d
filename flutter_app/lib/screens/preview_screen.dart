@@ -23,6 +23,8 @@ class PreviewScreen extends StatefulWidget {
 class _PreviewScreenState extends State<PreviewScreen> {
   late final WebViewController _controller;
   bool _isBusy = true;
+  String? _errorMessage;
+  String _statusMessage = '准备预览环境...';
 
   @override
   void initState() {
@@ -30,19 +32,65 @@ class _PreviewScreenState extends State<PreviewScreen> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0x00000000))
+      ..addJavaScriptChannel(
+        'FlutterPreview',
+        onMessageReceived: (message) {
+          if (!mounted) return;
+          final payload = message.message;
+          debugPrint('[PreviewScreen] JS message: $payload');
+          if (payload.startsWith('stage:')) {
+            setState(() {
+              _statusMessage = payload.substring('stage:'.length);
+            });
+            return;
+          }
+          if (payload == 'load') {
+            setState(() {
+              _isBusy = false;
+              _errorMessage = null;
+              _statusMessage = '模型加载完成';
+            });
+            return;
+          }
+
+          if (payload.startsWith('error:')) {
+            setState(() {
+              _isBusy = false;
+              _errorMessage = payload.substring('error:'.length);
+              _statusMessage = '模型预览失败';
+            });
+          }
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (_) {
-            if (mounted) setState(() => _isBusy = false);
+          onWebResourceError: (error) {
+            debugPrint('[PreviewScreen] Web resource error: ${error.description}');
+            if (!mounted) return;
+            setState(() {
+              _isBusy = false;
+              _errorMessage = error.description;
+              _statusMessage = '页面资源加载失败';
+            });
           },
         ),
-      )
-      ..loadHtmlString(_buildHtml(), baseUrl: widget.asset.glbUrl);
+      );
+    _loadPreviewHtml();
+  }
+
+  Future<void> _loadPreviewHtml() async {
+    debugPrint('[PreviewScreen] Load preview for GLB: ${widget.asset.glbUrl}');
+    setState(() {
+      _isBusy = true;
+      _errorMessage = null;
+      _statusMessage = '正在请求模型文件...';
+    });
+    await _controller.loadHtmlString(_buildHtml());
   }
 
   String _buildHtml() {
     final name = jsonEncode(widget.asset.name);
-    final src = jsonEncode(widget.asset.glbUrl);
+    final modelUrl = jsonEncode(widget.asset.glbUrl);
 
     return '''
 <!DOCTYPE html>
@@ -125,15 +173,54 @@ class _PreviewScreenState extends State<PreviewScreen> {
     </div>
     <script>
       const name = $name;
-      const src = $src;
+      const modelUrl = $modelUrl;
+      const notify = (message) => {
+        if (window.FlutterPreview && typeof window.FlutterPreview.postMessage === 'function') {
+          window.FlutterPreview.postMessage(message);
+        }
+      };
+      window.addEventListener('error', (event) => {
+        notify('error:' + (event.message || '页面脚本加载失败'));
+      });
       document.getElementById('name').textContent = name;
-      document.getElementById('viewer').src = src;
+      const viewer = document.getElementById('viewer');
+      notify('stage:准备从远程地址拉取模型');
+      viewer.addEventListener('load', () => notify('load'));
+      viewer.addEventListener('error', (event) => {
+        const detail = event?.detail;
+        const message = typeof detail === 'string'
+          ? detail
+          : detail?.type || detail?.message || '模型资源加载失败';
+        notify('error:' + message);
+      });
+
+      (async () => {
+        try {
+          notify('stage:开始请求 GLB 文件');
+          const response = await fetch(modelUrl, {
+            credentials: 'omit',
+            mode: 'cors',
+            cache: 'no-store',
+          });
+          if (!response.ok) {
+            const detail = await response.text().catch(() => '');
+            throw new Error(detail || ('模型文件请求失败 (' + response.status + ')'));
+          }
+
+          notify('stage:GLB 响应成功，正在读取二进制');
+          const blob = await response.blob();
+          notify('stage:二进制读取完成，准备交给查看器');
+          viewer.src = URL.createObjectURL(blob);
+        } catch (error) {
+          notify('error:' + (error?.message || '模型资源加载失败'));
+        }
+      })();
     </script>
   </body>
 </html>
 '''
         .replaceAll(r'$name', name)
-        .replaceAll(r'$src', src);
+        .replaceAll(r'$modelUrl', modelUrl);
   }
 
   Future<void> _download() async {
@@ -167,29 +254,88 @@ class _PreviewScreenState extends State<PreviewScreen> {
       body: Stack(
         children: [
           WebViewWidget(controller: _controller),
-          if (_isBusy)
-            const Center(
+          if (_errorMessage case final message?)
+            Center(
               child: DecoratedBox(
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
+                  color: Color(0xE6101826),
+                  borderRadius: BorderRadius.all(Radius.circular(24)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 320),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Color(0xFFFFC857),
+                          size: 32,
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          '模型预览加载失败',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          message,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFFD4E1F3),
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton.icon(
+                          onPressed: _loadPreviewHtml,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('重试加载'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (_isBusy)
+            Center(
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
                   color: Color(0xCC101826),
                   borderRadius: BorderRadius.all(Radius.circular(22)),
                 ),
                 child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SizedBox(
+                      const SizedBox(
                         width: 28,
                         height: 28,
                         child: CircularProgressIndicator(strokeWidth: 3),
                       ),
-                      SizedBox(height: 14),
-                      Text(
+                      const SizedBox(height: 14),
+                      const Text(
                         '模型加载中...',
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _statusMessage,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFFD4E1F3),
+                          fontSize: 12,
+                          height: 1.4,
                         ),
                       ),
                     ],
