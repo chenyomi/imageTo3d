@@ -119,12 +119,48 @@ class _GenerateScreenState extends State<GenerateScreen> {
     }
   }
 
+  Future<void> _showImagePreview(String imagePath) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog.fullscreen(
+        backgroundColor: const Color(0xFF050B14),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: 0.8,
+                maxScale: 4,
+                child: Center(child: Image.file(File(imagePath))),
+              ),
+            ),
+            Positioned(
+              top: 20,
+              right: 20,
+              child: SafeArea(
+                child: IconButton.filledTonal(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: IconButton.styleFrom(
+                    backgroundColor: const Color(0xFF18263C),
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
         final task = widget.controller.generationTask;
+        final displayedImagePath = _imagePath ??
+            (task.imagePath.isEmpty ? null : task.imagePath);
 
         return DecoratedBox(
           decoration: const BoxDecoration(
@@ -140,9 +176,46 @@ class _GenerateScreenState extends State<GenerateScreen> {
               const _PageHeader(),
               const SizedBox(height: 20),
               GestureDetector(
-                onTap: task.isRunning ? null : _showImageSourcePicker,
-                child: _UploadCard(imagePath: _imagePath),
+                onTap: displayedImagePath == null
+                    ? (task.isRunning ? null : _showImageSourcePicker)
+                    : () => _showImagePreview(displayedImagePath),
+                child: _UploadCard(
+                  imagePath: displayedImagePath,
+                  isBusy: task.isRunning,
+                ),
               ),
+              if (displayedImagePath != null) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showImagePreview(displayedImagePath),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF2C3D5E)),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(Icons.open_in_full_rounded),
+                        label: const Text('查看原图'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.tonalIcon(
+                        onPressed: task.isRunning ? null : _showImageSourcePicker,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF18263C),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(Icons.photo_library_outlined),
+                        label: Text(task.isRunning ? '处理中' : '更换图片'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 20),
               _SettingCard(
                 title: '分辨率',
@@ -378,9 +451,10 @@ class _ResolutionOption extends StatelessWidget {
 }
 
 class _UploadCard extends StatelessWidget {
-  const _UploadCard({required this.imagePath});
+  const _UploadCard({required this.imagePath, required this.isBusy});
 
   final String? imagePath;
+  final bool isBusy;
 
   @override
   Widget build(BuildContext context) {
@@ -409,17 +483,17 @@ class _UploadCard extends StatelessWidget {
             if (hasImage) Image.file(File(imagePath!), fit: BoxFit.cover),
             Container(
               color: hasImage
-                  ? Colors.black.withOpacity(0.24)
+                  ? Colors.black.withValues(alpha: isBusy ? 0.42 : 0.24)
                   : Colors.transparent,
             ),
             Padding(
               padding: const EdgeInsets.all(22),
               child: hasImage
-                  ? const Column(
+                  ? Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        Text(
+                        const Text(
                           'Source Image',
                           style: TextStyle(
                             fontSize: 11,
@@ -428,15 +502,38 @@ class _UploadCard extends StatelessWidget {
                             color: Color(0xFF82D8FF),
                           ),
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Text(
-                          '已选择图片，点击可重新选择或替换',
+                          isBusy ? '图片已锁定，生成完成前仍可查看原图' : '点击查看原图，可继续替换图片',
                           style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
                             color: Colors.white,
                           ),
                         ),
+                        if (isBusy) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Color(0xFF82D8FF),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                '生成进行中',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFFD6E7FF),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     )
                   : const Column(

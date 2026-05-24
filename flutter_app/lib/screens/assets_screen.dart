@@ -88,6 +88,7 @@ class AssetsScreen extends StatelessWidget {
                   subtitle: task.progressText.isEmpty
                       ? '处理中...'
                       : task.progressText,
+                  imagePath: task.imagePath,
                 ),
               ],
               if (task.status == GenerationStatus.error &&
@@ -98,6 +99,7 @@ class AssetsScreen extends StatelessWidget {
                   accent: const Color(0xFFFF9CAB),
                   title: '上一个生成任务失败',
                   subtitle: task.error,
+                  imagePath: task.imagePath,
                 ),
               ],
               const SizedBox(height: 18),
@@ -172,15 +174,19 @@ class _TaskBanner extends StatelessWidget {
     required this.accent,
     required this.title,
     required this.subtitle,
+    required this.imagePath,
   });
 
   final IconData icon;
   final Color accent;
   final String title;
   final String subtitle;
+  final String imagePath;
 
   @override
   Widget build(BuildContext context) {
+    final hasImage = imagePath.isNotEmpty && File(imagePath).existsSync();
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -190,11 +196,20 @@ class _TaskBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: accent.withOpacity(0.18),
-            child: Icon(icon, color: accent),
-          ),
+          hasImage
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: SizedBox(
+                    width: 52,
+                    height: 52,
+                    child: Image.file(File(imagePath), fit: BoxFit.cover),
+                  ),
+                )
+              : CircleAvatar(
+                  radius: 22,
+                  backgroundColor: accent.withValues(alpha: 0.18),
+                  child: Icon(icon, color: accent),
+                ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(

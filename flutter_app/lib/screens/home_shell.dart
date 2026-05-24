@@ -38,15 +38,7 @@ class _HomeShellState extends State<HomeShell> {
     ];
 
     return Scaffold(
-      body: SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          child: KeyedSubtree(
-            key: ValueKey(currentIndex),
-            child: pages[currentIndex],
-          ),
-        ),
-      ),
+      body: SafeArea(child: IndexedStack(index: currentIndex, children: pages)),
       bottomNavigationBar: NavigationBar(
         selectedIndex: currentIndex,
         onDestinationSelected: (value) => setState(() => currentIndex = value),
