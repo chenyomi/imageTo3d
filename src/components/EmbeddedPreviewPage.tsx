@@ -10,15 +10,14 @@ export default function EmbeddedPreviewPage() {
   const params = useMemo(() => new URLSearchParams(window.location.search), [])
   const modelUrl = params.get('glbUrl') || ''
   const title = params.get('name') || '模型预览'
+  const missingModelError = '当前没有拿到可用的模型地址。'
 
   const [loading, setLoading] = useState(Boolean(modelUrl))
-  const [error, setError] = useState('')
+  const [error, setError] = useState(modelUrl ? '' : missingModelError)
   const [resolvedUrl, setResolvedUrl] = useState('')
 
   useEffect(() => {
     if (!modelUrl) {
-      setLoading(false)
-      setError('当前没有拿到可用的模型地址。')
       return
     }
 

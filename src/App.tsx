@@ -12,9 +12,7 @@ type MobileTab = 'generate' | 'view' | 'assets'
 
 export default function App() {
   const searchParams = new URLSearchParams(window.location.search)
-  if (searchParams.get('mode') === 'embed-preview') {
-    return <EmbeddedPreviewPage />
-  }
+  const isEmbedPreview = searchParams.get('mode') === 'embed-preview'
 
   const [appState, setAppState] = useState<AppState>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -88,6 +86,10 @@ export default function App() {
     setActiveAssetId(asset.id)
     setAppState('done')
   }, [])
+
+  if (isEmbedPreview) {
+    return <EmbeddedPreviewPage />
+  }
 
   return (
     <div className="flex flex-col h-[100dvh] bg-[#0d1420] text-white overflow-hidden">
