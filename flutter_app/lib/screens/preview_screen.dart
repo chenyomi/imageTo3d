@@ -1,4 +1,5 @@
-import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -22,6 +23,7 @@ class PreviewScreen extends StatefulWidget {
 
 class _PreviewScreenState extends State<PreviewScreen> {
   late final WebViewController _controller;
+  HttpServer? _localServer;
   bool _isBusy = true;
   String? _errorMessage;
   String _statusMessage = '准备预览环境...';
@@ -65,7 +67,9 @@ class _PreviewScreenState extends State<PreviewScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onWebResourceError: (error) {
-            debugPrint('[PreviewScreen] Web resource error: ${error.description}');
+            debugPrint(
+              '[PreviewScreen] Web resource error: ${error.description}',
+            );
             if (!mounted) return;
             setState(() {
               _isBusy = false;
@@ -83,14 +87,83 @@ class _PreviewScreenState extends State<PreviewScreen> {
     setState(() {
       _isBusy = true;
       _errorMessage = null;
-      _statusMessage = '正在请求模型文件...';
+      _statusMessage = '正在下载模型文件...';
     });
-    await _controller.loadHtmlString(_buildHtml());
+    try {
+      final bytes = await _downloadGlbBytes();
+
+      // 关闭旧服务器（如果有）
+      await _localServer?.close(force: true);
+      _localServer = null;
+
+      setState(() {
+        _statusMessage = '正在启动本地预览服务...';
+      });
+
+      // 启动本地 HTTP 服务器，避免 base64 大文件问题和 CORS 限制
+      final server = await HttpServer.bind('127.0.0.1', 0);
+      _localServer = server;
+      final port = server.port;
+      final glbBytes = bytes; // 捕获引用
+
+      server.listen((request) async {
+        try {
+          if (request.uri.path == '/model.glb') {
+            request.response
+              ..statusCode = 200
+              ..headers.set('Content-Type', 'model/gltf-binary')
+              ..headers.set('Content-Length', glbBytes.length.toString())
+              ..headers.set('Access-Control-Allow-Origin', '*')
+              ..add(glbBytes);
+          } else {
+            final html = _buildHtml(
+              modelSrc: 'http://127.0.0.1:$port/model.glb',
+            );
+            request.response
+              ..statusCode = 200
+              ..headers.contentType = ContentType.html
+              ..write(html);
+          }
+          await request.response.close();
+        } catch (_) {}
+      });
+
+      await _controller.loadRequest(Uri.parse('http://127.0.0.1:$port/'));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isBusy = false;
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        _statusMessage = '模型文件下载失败';
+      });
+    }
   }
 
-  String _buildHtml() {
-    final name = jsonEncode(widget.asset.name);
-    final modelUrl = jsonEncode(widget.asset.glbUrl);
+  @override
+  void dispose() {
+    _localServer?.close(force: true);
+    super.dispose();
+  }
+
+  Future<Uint8List> _downloadGlbBytes() async {
+    // 优先使用本地已缓存的文件，避免重复下载
+    if (widget.asset.localGlbPath case final localPath?) {
+      final file = File(localPath);
+      if (await file.exists()) {
+        return file.readAsBytes();
+      }
+    }
+    final localPath = await widget.controller.downloadAsset(widget.asset);
+    return File(localPath).readAsBytes();
+  }
+
+  String _buildHtml({required String modelSrc}) {
+    // 转义用于 JS 单引号字符串（\\ 必须先转，再转 '）
+    final nameJs = widget.asset.name
+        .replaceAll(r'\', r'\\')
+        .replaceAll("'", r"\'");
+    // modelSrc 始终为 http://127.0.0.1:PORT/model.glb，无需额外转义
+    final modelUrl = modelSrc;
 
     return '''
 <!DOCTYPE html>
@@ -172,8 +245,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
       <div class="badge">拖动旋转模型，双指缩放</div>
     </div>
     <script>
-      const name = $name;
-      const modelUrl = $modelUrl;
       const notify = (message) => {
         if (window.FlutterPreview && typeof window.FlutterPreview.postMessage === 'function') {
           window.FlutterPreview.postMessage(message);
@@ -182,9 +253,8 @@ class _PreviewScreenState extends State<PreviewScreen> {
       window.addEventListener('error', (event) => {
         notify('error:' + (event.message || '页面脚本加载失败'));
       });
-      document.getElementById('name').textContent = name;
+      document.getElementById('name').textContent = '${nameJs}';
       const viewer = document.getElementById('viewer');
-      notify('stage:准备从远程地址拉取模型');
       viewer.addEventListener('load', () => notify('load'));
       viewer.addEventListener('error', (event) => {
         const detail = event?.detail;
@@ -194,33 +264,12 @@ class _PreviewScreenState extends State<PreviewScreen> {
         notify('error:' + message);
       });
 
-      (async () => {
-        try {
-          notify('stage:开始请求 GLB 文件');
-          const response = await fetch(modelUrl, {
-            credentials: 'omit',
-            mode: 'cors',
-            cache: 'no-store',
-          });
-          if (!response.ok) {
-            const detail = await response.text().catch(() => '');
-            throw new Error(detail || ('模型文件请求失败 (' + response.status + ')'));
-          }
-
-          notify('stage:GLB 响应成功，正在读取二进制');
-          const blob = await response.blob();
-          notify('stage:二进制读取完成，准备交给查看器');
-          viewer.src = URL.createObjectURL(blob);
-        } catch (error) {
-          notify('error:' + (error?.message || '模型资源加载失败'));
-        }
-      })();
+      notify('stage:模型数据已就绪，交给查看器渲染');
+      viewer.src = '${modelUrl}';
     </script>
   </body>
 </html>
-'''
-        .replaceAll(r'$name', name)
-        .replaceAll(r'$modelUrl', modelUrl);
+''';
   }
 
   Future<void> _download() async {
@@ -311,7 +360,10 @@ class _PreviewScreenState extends State<PreviewScreen> {
                   borderRadius: BorderRadius.all(Radius.circular(22)),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 18,
+                  ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [

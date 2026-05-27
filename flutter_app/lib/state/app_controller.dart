@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/asset_item.dart';
@@ -14,7 +13,6 @@ class AppController extends ChangeNotifier {
 
   final LocalStorageService _storage = LocalStorageService();
   final GradioService _gradio = GradioService();
-  final http.Client _client = http.Client();
 
   List<AssetItem> assets = const [];
   GenerationTask generationTask = GenerationTask.idle();
@@ -98,14 +96,33 @@ class AppController extends ChangeNotifier {
           );
         },
       );
+
+      // 生成完成后尝试缓存到本地；下载失败不阻断成功，预览时再重试
+      _updateTask(
+        generationTask.copyWith(
+          id: taskId,
+          status: GenerationStatus.running,
+          progressText: '正在缓存模型文件...',
+        ),
+      );
+      final assetId = DateTime.now().millisecondsSinceEpoch.toString();
+      String? localGlbPath;
+      try {
+        localGlbPath = await _downloadGlbToLocal(glbUrl, assetId);
+      } catch (e) {
+        // 缓存失败只记录日志，不影响资产保存；预览时会再次尝试下载
+        debugPrint('[AppController] GLB cache failed (non-fatal): $e');
+      }
+
       final coverPath = await _copyImageToAppDir(imagePath);
 
       final asset = AssetItem(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        id: assetId,
         name:
             '模型_${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}:${DateTime.now().second.toString().padLeft(2, '0')}',
         coverPath: coverPath,
         glbUrl: glbUrl,
+        localGlbPath: localGlbPath,
         createdAt: DateTime.now(),
       );
 
@@ -148,6 +165,18 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<String> _downloadGlbToLocal(String glbUrl, String assetId) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final modelsDir = Directory('${directory.path}/models');
+    if (!await modelsDir.exists()) {
+      await modelsDir.create(recursive: true);
+    }
+    final bytes = await _gradio.downloadBytes(glbUrl);
+    final targetPath = '${modelsDir.path}/$assetId.glb';
+    await File(targetPath).writeAsBytes(bytes, flush: true);
+    return targetPath;
+  }
+
   Future<String> downloadAsset(AssetItem asset) async {
     if (asset.localGlbPath case final localPath?) {
       final localFile = File(localPath);
@@ -160,14 +189,11 @@ class AppController extends ChangeNotifier {
       await modelsDir.create(recursive: true);
     }
 
-    final response = await _client.get(Uri.parse(asset.glbUrl));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('下载失败 (${response.statusCode})');
-    }
+    final downloadedBytes = await _gradio.downloadBytes(asset.glbUrl);
 
     final targetPath = '${modelsDir.path}/${asset.id}.glb';
     final file = File(targetPath);
-    await file.writeAsBytes(response.bodyBytes, flush: true);
+    await file.writeAsBytes(downloadedBytes, flush: true);
 
     assets = assets
         .map(
@@ -183,7 +209,6 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _client.close();
     _gradio.dispose();
     super.dispose();
   }
