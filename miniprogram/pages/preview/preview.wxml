@@ -1,8 +1,0 @@
-<web-view wx:if="{{viewerUrl}}" src="{{viewerUrl}}"></web-view>
-
-<view wx:else class="preview-empty">
-  <image class="preview-empty-logo" src="/assets/logo-cube.svg" mode="aspectFit" />
-  <text class="preview-empty-title">暂时无法打开预览</text>
-  <text class="preview-empty-text">当前没有拿到可用的模型地址，请返回历史记录后重试。</text>
-  <view class="preview-empty-btn" bindtap="goBack">返回历史</view>
-</view>

@@ -47,7 +47,7 @@ function svgToPng(svgFile: File, size = 1024): Promise<File> {
 }
 
 export interface GeneratePanelProps {
-  onGenerate: (image: File, prompt: string, settings: GenerateSettings) => void
+  onGenerate: (images: File[], prompt: string, settings: GenerateSettings) => void
   isGenerating: boolean
   hasModel: boolean
   error: string | null
@@ -75,41 +75,70 @@ export default function GeneratePanel({
   onPreviewStyleChange,
 }: GeneratePanelProps) {
   const [isDragging, setIsDragging] = useState(false)
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [prompt, setPrompt] = useState('')
-  const [showPrompt, setShowPrompt] = useState(false)
+  const [imageFiles, setImageFiles] = useState<File[]>([])
+  const [imagePreviews, setImagePreviews] = useState<string[]>([])
   const [showEngine, setShowEngine] = useState(false)
   const [settings, setSettings] = useState<GenerateSettings>(DEFAULT_GENERATE_SETTINGS)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const setImage = useCallback(async (file: File) => {
-    if (!file.type.startsWith('image/')) return
-    // 立即显示预览（SVG 在 <img> 里渲染正常）
-    setImagePreview((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return URL.createObjectURL(file)
-    })
+  const setImages = useCallback(async (files: File[]) => {
+    const imageList = files.filter((file) => file.type.startsWith('image/')).slice(0, 8)
+    if (imageList.length === 0) return
     onClearError()
-    // SVG 转 PNG 再传给 API（大多数 ML 模型不支持 SVG）
-    if (file.type === 'image/svg+xml') {
+
+    const converted = await Promise.all(imageList.map(async (file) => {
+      if (file.type !== 'image/svg+xml') return file
       try {
-        const png = await svgToPng(file)
-        setImageFile(png)
+        return await svgToPng(file)
       } catch {
-        setImageFile(file) // 转换失败时原样传递
+        return file
       }
-    } else {
-      setImageFile(file)
-    }
+    }))
+
+    setImageFiles(converted)
+    setImagePreviews((prev) => {
+      prev.forEach(URL.revokeObjectURL)
+      return imageList.map((file) => URL.createObjectURL(file))
+    })
   }, [onClearError])
 
-  const clearImage = (e: MouseEvent) => {
+  const appendImages = useCallback(async (files: File[]) => {
+    const slots = Math.max(0, 8 - imageFiles.length)
+    if (slots === 0) return
+    const incoming = files.filter((file) => file.type.startsWith('image/')).slice(0, slots)
+    if (incoming.length === 0) return
+    onClearError()
+
+    const converted = await Promise.all(incoming.map(async (file) => {
+      if (file.type !== 'image/svg+xml') return file
+      try {
+        return await svgToPng(file)
+      } catch {
+        return file
+      }
+    }))
+
+    setImageFiles((prev) => [...prev, ...converted])
+    setImagePreviews((prev) => [...prev, ...incoming.map((file) => URL.createObjectURL(file))])
+  }, [imageFiles.length, onClearError])
+
+  const removeImage = (index: number, e?: MouseEvent) => {
+    e?.stopPropagation()
+    setImageFiles((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
+    setImagePreviews((prev) => {
+      const next = prev.filter((_, itemIndex) => itemIndex !== index)
+      URL.revokeObjectURL(prev[index])
+      return next
+    })
+    onClearError()
+  }
+
+  const clearImages = (e: MouseEvent) => {
     e.stopPropagation()
-    setImageFile(null)
-    setImagePreview((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
+    setImageFiles([])
+    setImagePreviews((prev) => {
+      prev.forEach(URL.revokeObjectURL)
+      return []
     })
     onClearError()
   }
@@ -117,13 +146,17 @@ export default function GeneratePanel({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-    const file = e.dataTransfer.files[0]
-    if (file) setImage(file)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length) {
+      void setImages(files)
+    }
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) setImage(file)
+    const files = Array.from(e.target.files ?? [])
+    if (files.length) {
+      void (imageFiles.length ? appendImages(files) : setImages(files))
+    }
     e.target.value = ''
   }
 
@@ -139,20 +172,20 @@ export default function GeneratePanel({
   }
 
   const handleGenerate = () => {
-    if (!imageFile || isGenerating) return
-    onGenerate(imageFile, prompt.trim(), { ...settings, manualFov: -1 })
+    if (imageFiles.length === 0 || isGenerating) return
+    onGenerate(imageFiles, '', settings)
   }
 
-  const canGenerate = !!imageFile && !isGenerating
+  const canGenerate = imageFiles.length > 0 && !isGenerating
 
   return (
     <aside className="w-full lg:w-[320px] bg-[#101826] lg:border-r border-[#263348] flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] [touch-action:pan-y] text-[#dbe4f3]">
       <div className="px-6 pt-4 pb-3">
         <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.18em] text-[#8fa0bb]">
           <Sparkles size={15} className="text-[#7c89ff]" />
-          Pixal3D Workspace
+          ReconViaGen Workspace
         </div>
-        <h2 className="mt-1.5 text-[21px] leading-tight font-bold text-white">Image to 3D</h2>
+        <h2 className="mt-1.5 text-[21px] leading-tight font-bold text-white">Multi-view to 3D</h2>
       </div>
 
       <div className="px-6 pb-4">
@@ -165,22 +198,40 @@ export default function GeneratePanel({
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
-          onClick={() => !imagePreview && fileInputRef.current?.click()}
+          onClick={() => imagePreviews.length === 0 && fileInputRef.current?.click()}
         >
-          {imagePreview ? (
+          {imagePreviews.length > 0 ? (
             <>
-              <img src={imagePreview} alt="preview" className="absolute inset-0 h-full w-full object-cover" />
+              <div className="grid h-full min-h-[150px] grid-cols-2 gap-1 p-1">
+                {imagePreviews.slice(0, 4).map((preview, index) => (
+                  <div key={preview} className="relative overflow-hidden rounded-xl bg-[#0d1420]">
+                    <img src={preview} alt={`view ${index + 1}`} className="h-full min-h-[70px] w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={(e) => removeImage(index, e)}
+                      className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {imagePreviews.length > 4 && (
+                <div className="absolute right-3 top-3 rounded-full bg-black/70 px-2.5 py-1 text-[12px] font-bold text-white">
+                  +{imagePreviews.length - 4}
+                </div>
+              )}
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-4">
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-[#111827]"
                 >
                   <UploadCloud size={15} />
-                  Replace Image
+                  Add Views
                 </button>
               </div>
               <button
-                onClick={clearImage}
+                onClick={clearImages}
                 className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
               >
                 <X size={15} />
@@ -192,8 +243,8 @@ export default function GeneratePanel({
                 <ImageIcon size={22} />
               </div>
               <div>
-                <p className="text-[15px] font-semibold text-white">Drop product photo here</p>
-                <p className="mt-1 text-[12px] text-[#8fa0bb]">JPG, PNG, WEBP, SVG up to 20MB</p>
+                <p className="text-[15px] font-semibold text-white">Drop object views here</p>
+                <p className="mt-1 text-[12px] text-[#8fa0bb]">1-8 JPG, PNG, WEBP, SVG images</p>
               </div>
             </div>
           )}
@@ -202,6 +253,7 @@ export default function GeneratePanel({
           ref={fileInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/svg+xml"
+          multiple
           className="hidden"
           onChange={handleFileChange}
         />
@@ -210,16 +262,6 @@ export default function GeneratePanel({
       <div className="space-y-4 px-6 pb-5">
         <section className="space-y-2.5">
           <PanelTitle icon={Box} label="Generation" />
-          <FieldLabel label="Target Resolution" />
-          <select
-            value={settings.resolution}
-            onChange={(e) => updateSetting('resolution', Number(e.target.value) as 1024 | 1536)}
-            className="w-full rounded-2xl border border-[#34435c] bg-[#182234] px-4 py-3 text-[15px] font-semibold text-white outline-none focus:border-[#7c89ff]"
-          >
-            <option value={1024}>1024 Balanced</option>
-            <option value={1536}>1536 High Quality</option>
-          </select>
-
           <div>
             <div className="flex items-center justify-between">
               <FieldLabel label="Generation Seed" />
@@ -246,6 +288,17 @@ export default function GeneratePanel({
               </button>
             </div>
           </div>
+          <div>
+            <FieldLabel label="Multi-view Algorithm" />
+            <select
+              value={settings.multiimageAlgo}
+              onChange={(e) => updateSetting('multiimageAlgo', e.target.value as GenerateSettings['multiimageAlgo'])}
+              className="w-full rounded-2xl border border-[#34435c] bg-[#182234] px-4 py-3 text-[15px] font-semibold text-white outline-none focus:border-[#7c89ff]"
+            >
+              <option value="multidiffusion">Multidiffusion</option>
+              <option value="stochastic">Stochastic</option>
+            </select>
+          </div>
         </section>
 
         {hasModel && (
@@ -270,24 +323,6 @@ export default function GeneratePanel({
           </section>
         )}
 
-        <button
-          type="button"
-          onClick={() => setShowPrompt((v) => !v)}
-          className="flex w-full items-center justify-between rounded-2xl border border-[#263348] bg-[#121d2d] px-4 py-3 text-left text-[13px] font-semibold text-[#aab7cc]"
-        >
-          Optional Prompt
-          {showPrompt ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
-        {showPrompt && (
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Short hint, material, object type..."
-            rows={2}
-            className="w-full resize-none rounded-2xl border border-[#34435c] bg-[#182234] px-4 py-3 text-[14px] text-white placeholder-[#67758d] outline-none focus:border-[#7c89ff]"
-          />
-        )}
-
         <section className="rounded-[20px] border border-[#263348] bg-[#121d2d] p-4">
           <button
             type="button"
@@ -303,62 +338,55 @@ export default function GeneratePanel({
               <RangeField
                 label="SS Guidance"
                 value={settings.ssGuidanceStrength}
-                min={1}
-                max={12}
-                step={0.5}
+                min={0}
+                max={10}
+                step={0.1}
                 onChange={(value) => updateSetting('ssGuidanceStrength', value)}
               />
               <RangeField
                 label="SS Sampling"
                 value={settings.ssSamplingSteps}
-                min={4}
-                max={24}
+                min={1}
+                max={50}
                 step={1}
                 onChange={(value) => updateSetting('ssSamplingSteps', value)}
               />
               <RangeField
-                label="Shape Guidance"
-                value={settings.shapeGuidanceStrength}
-                min={1}
-                max={12}
-                step={0.5}
-                onChange={(value) => updateSetting('shapeGuidanceStrength', value)}
+                label="SLat Guidance"
+                value={settings.slatGuidanceStrength}
+                min={0}
+                max={10}
+                step={0.1}
+                onChange={(value) => updateSetting('slatGuidanceStrength', value)}
               />
               <RangeField
-                label="Shape Sampling"
-                value={settings.shapeSamplingSteps}
-                min={4}
-                max={24}
+                label="SLat Sampling"
+                value={settings.slatSamplingSteps}
+                min={1}
+                max={50}
                 step={1}
-                onChange={(value) => updateSetting('shapeSamplingSteps', value)}
+                onChange={(value) => updateSetting('slatSamplingSteps', value)}
+              />
+              <RangeField
+                label="Mesh Simplify"
+                value={settings.meshSimplify}
+                min={0.9}
+                max={0.98}
+                step={0.01}
+                onChange={(value) => updateSetting('meshSimplify', value)}
               />
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <FieldLabel label="Mesh Faces" />
-                  <select
-                    value={settings.decimationTarget}
-                    onChange={(e) => updateSetting('decimationTarget', Number(e.target.value))}
-                    className="w-full rounded-xl border border-[#34435c] bg-[#182234] px-3 py-2.5 text-[13px] font-semibold text-white outline-none"
-                  >
-                    <option value={100000}>100K</option>
-                    <option value={250000}>250K</option>
-                    <option value={500000}>500K</option>
-                    <option value={1000000}>1M</option>
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel label="Texture" />
-                  <select
-                    value={settings.textureSize}
-                    onChange={(e) => updateSetting('textureSize', Number(e.target.value) as 512 | 1024 | 2048 | 4096)}
-                    className="w-full rounded-xl border border-[#34435c] bg-[#182234] px-3 py-2.5 text-[13px] font-semibold text-white outline-none"
-                  >
-                    <option value={1024}>1K</option>
-                    <option value={2048}>2K</option>
-                    <option value={4096}>4K</option>
-                  </select>
-                </div>
+              <div>
+                <FieldLabel label="Texture" />
+                <select
+                  value={settings.textureSize}
+                  onChange={(e) => updateSetting('textureSize', Number(e.target.value) as 512 | 1024 | 2048)}
+                  className="w-full rounded-xl border border-[#34435c] bg-[#182234] px-3 py-2.5 text-[13px] font-semibold text-white outline-none"
+                >
+                  <option value={512}>512</option>
+                  <option value={1024}>1024</option>
+                  <option value={2048}>2048</option>
+                </select>
               </div>
             </div>
           )}

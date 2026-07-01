@@ -1,15 +1,10 @@
 /**
- * ============================================================
- *  Image → 3D 模型 API 接口层
- *  对接本地 Gradio Live 实例（三步：preprocess → generate_3d → extract_glb）
- * ============================================================
+ * Image -> 3D API adapter for Stable-X/ReconViaGen.
+ *
+ * ReconViaGen exposes a Gradio gallery pipeline:
+ * upload images -> /preprocess_images -> /generate_and_extract_glb.
  */
 
-// 网页端直接调用 /gradio_api/call，避免依赖不同实例对 @gradio/client /info 的兼容性。
-
-// ── CORS 修复 ────────────────────────────────────────────────
-// @gradio/client 硬编码 credentials:'include'，Gradio Live 不返回
-// Access-Control-Allow-Credentials:true → 预检失败。补丁强制 omit。
 ;(function patchFetch() {
   if (typeof window === 'undefined') return
   const prev = window.fetch as typeof fetch & { __gradio_patched?: boolean }
@@ -20,7 +15,7 @@
       typeof input === 'string' ? input
       : input instanceof URL ? input.toString()
       : (input as Request).url
-    if (url.includes('.gradio.live') || url.includes('.hf.space')) {
+    if (url.includes('.hf.space') || url.includes('.gradio.live')) {
       return orig(input, { ...init, credentials: 'omit' })
     }
     return orig(input, init)
@@ -29,130 +24,38 @@
   window.fetch = next
 })()
 
-// ── 错误类型 ─────────────────────────────────────────────────
+const DEFAULT_RECONVIAGEN_URL = 'https://stable-x-reconviagen.hf.space'
 
 export class ModelApiNotReadyError extends Error {
   constructor(msg?: string) {
-    super(msg ?? 'Gradio 服务器暂不可用，请等待 CI 自动更新实例地址（每天 10:00 UTC+8）。')
+    super(msg ?? 'ReconViaGen service is temporarily unavailable. Please try again later.')
     this.name = 'ModelApiNotReadyError'
   }
 }
 
-// ── URL 管理 ─────────────────────────────────────────────────
-// 优先级：VITE_GRADIO_URL env var > Gist(CI自动轮询分流)
-
-export interface GradioInstance { url: string }
-
-let _instances: GradioInstance[] | null = null
-let _instanceCursor = 0
-const _validEndpointCache = new Map<string, boolean>()
-
-export async function fetchGradioInstances(): Promise<GradioInstance[]> {
-  if (_instances !== null) return _instances
-
-  // 1. Gist raw URL（无速率限制，直接读最新内容）
-  const gistId = (import.meta.env.VITE_GIST_ID as string | undefined) || ''
-  if (gistId) {
-    try {
-      const res = await fetch(
-        `https://gist.githubusercontent.com/chenyomi/${gistId}/raw/gradio-urls.json`,
-        { credentials: 'omit', cache: 'no-store' },
-      )
-      if (res.ok) {
-        const data = await res.json() as { instances?: GradioInstance[] }
-        _instances = data.instances ?? []
-        if (_instances.length > 0) return _instances
-      }
-    } catch { /* ignore */ }
-  }
-
-  _instances = []
-  return _instances
-}
-
-async function hasWorkingApi(baseUrl: string): Promise<boolean> {
-  const normalizedUrl = baseUrl.replace(/\/$/, '')
-  const cached = _validEndpointCache.get(normalizedUrl)
-  if (typeof cached === 'boolean') return cached
-
-  try {
-    const res = await fetch(`${normalizedUrl}/gradio_api/info`, {
-      credentials: 'omit',
-      cache: 'no-store',
-    })
-
-    if (!res.ok) {
-      _validEndpointCache.set(normalizedUrl, false)
-      return false
-    }
-
-    const data = await res.json() as {
-      named_endpoints?: Record<string, unknown>
-      unnamed_endpoints?: Record<string, unknown>
-    }
-
-    const namedEndpoints = data.named_endpoints ?? {}
-    const usable = ['/preprocess', '/generate_3d', '/extract_glb_api'].every((key) => key in namedEndpoints)
-    _validEndpointCache.set(normalizedUrl, usable)
-    return usable
-  } catch {
-    _validEndpointCache.set(normalizedUrl, false)
-    return false
-  }
-}
-
-/** 解析当前应使用的 Gradio URL（内部使用） */
-async function resolveGradioUrl(): Promise<string> {
-  // 1. 固定直连地址（本地/线上优先）
-  const direct = (import.meta.env.VITE_GRADIO_URL as string | undefined) ?? ''
-  if (direct) {
-    const normalized = direct.replace(/\/$/, '')
-    if (await hasWorkingApi(normalized)) return normalized
-  }
-
-  // 2. Gist 动态地址（CI 自动更新，按实例轮询分流）
-  const list = await fetchGradioInstances()
-  if (list.length > 0) {
-    for (let offset = 0; offset < list.length; offset += 1) {
-      const picked = list[(_instanceCursor + offset) % list.length]
-      const normalized = picked.url.replace(/\/$/, '')
-      if (await hasWorkingApi(normalized)) {
-        _instanceCursor += offset + 1
-        return normalized
-      }
-    }
-  }
-
-  throw new ModelApiNotReadyError()
-}
-
-// ── 配置 ─────────────────────────────────────────────────────
-
-// ── 类型定义 ────────────────────────────────────────────────
-
 export interface GenerateParams {
-  image: File
+  images: File[]
   prompt?: string
   settings?: GenerateSettings
   onProgress?: (progress: GenerateProgress) => void
 }
 
 export interface GenerateSettings {
-  resolution: 1024 | 1536
   seed: number
-  manualFov: number
   ssGuidanceStrength: number
   ssSamplingSteps: number
-  shapeGuidanceStrength: number
-  shapeSamplingSteps: number
-  decimationTarget: number
-  textureSize: 512 | 1024 | 2048 | 4096
+  slatGuidanceStrength: number
+  slatSamplingSteps: number
+  multiimageAlgo: 'multidiffusion' | 'stochastic'
+  meshSimplify: number
+  textureSize: 512 | 1024 | 2048
 }
 
 export interface GenerateResult {
   modelUrl: string
   thumbnailUrl?: string
   remoteModelUrl?: string
+  previewVideoUrl?: string
 }
 
 export interface GenerateProgressStep {
@@ -170,26 +73,72 @@ export interface GenerateProgress {
   etaSeconds?: number
 }
 
-// ── 核心接口 ─────────────────────────────────────────────────
+type FileData = {
+  path?: string | null
+  url?: string | null
+  orig_name?: string | null
+  mime_type?: string | null
+  meta?: Record<string, unknown>
+}
 
-type FileData = { url?: string | null; path?: string; state_path?: string }
+interface QueueStatusPayload {
+  msg?: string
+  rank?: number
+  rank_eta?: number
+  progress_data?: Array<{
+    progress?: number | null
+    index?: number | null
+    length?: number | null
+    desc?: string | null
+  }>
+  output?: {
+    error?: string
+    data?: unknown[]
+  }
+}
+
+interface SseEventPayload {
+  event: string
+  data: unknown
+}
 
 const PIPELINE_STEPS = [
-  'Preprocessing & Camera Estimation',
-  'Sampling sparse structure (proj)',
-  'Sampling shape SLat (proj)',
-  'Sampling HR shape SLat',
-  'Sampling texture SLat (proj)',
-  'Rendering',
-  'Extracting GLB',
+  'Upload images',
+  'Preprocess views',
+  'Generate 3D asset',
+  'Extract GLB',
+  'Load preview',
 ] as const
 
 type PipelineStepLabel = (typeof PIPELINE_STEPS)[number]
 
-const EMPTY_STEPS: GenerateProgressStep[] = PIPELINE_STEPS.map((label, index) => ({
-  label,
-  state: index === 0 ? 'active' : 'pending',
-}))
+const EMPTY_STEPS = buildSteps('Upload images', 0)
+
+export const DEFAULT_GENERATE_SETTINGS: GenerateSettings = {
+  seed: -1,
+  ssGuidanceStrength: 7.5,
+  ssSamplingSteps: 30,
+  slatGuidanceStrength: 3,
+  slatSamplingSteps: 12,
+  multiimageAlgo: 'multidiffusion',
+  meshSimplify: 0.95,
+  textureSize: 1024,
+}
+
+function trimSlash(url: string): string {
+  return url.replace(/\/+$/, '')
+}
+
+function resolveGradioUrl(): string {
+  return trimSlash((import.meta.env.VITE_GRADIO_URL as string | undefined) || DEFAULT_RECONVIAGEN_URL)
+}
+
+function absoluteUrl(baseUrl: string, url?: string | null): string | null {
+  if (!url) return null
+  if (/^https?:\/\//i.test(url)) return url
+  if (url.startsWith('/gradio_api/') || url.startsWith('/file=')) return `${baseUrl}${url}`
+  return `${baseUrl}/gradio_api/file=${encodeURI(url)}`
+}
 
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0
@@ -197,10 +146,9 @@ function clampPercent(value: number): number {
 }
 
 function formatEta(seconds?: number): string {
-  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return 'Queueing job...'
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return 'Waiting for GPU slot...'
   if (seconds < 60) return `Estimated ${Math.ceil(seconds)}s remaining`
-  const minutes = Math.ceil(seconds / 60)
-  return `Estimated ${minutes} min remaining`
+  return `Estimated ${Math.ceil(seconds / 60)} min remaining`
 }
 
 function buildSteps(
@@ -215,73 +163,16 @@ function buildSteps(
       completed.has(label)
         ? 'done'
         : label === activeLabel
-          ? activeProgress < 1 ? 'active' : 'done'
+          ? activeProgress >= 1 ? 'done' : 'active'
           : 'pending',
   }))
 }
 
-function calcStepPercent(
-  _activeLabel: PipelineStepLabel,
-  activeProgress = 0,
-  completedLabels: Iterable<PipelineStepLabel> = [],
-): number {
-  const normalized = Math.max(0, Math.min(1, activeProgress))
-  const completedCount = new Set(completedLabels).size
-  return ((completedCount + normalized) / PIPELINE_STEPS.length) * 100
-}
-
-function matchPipelineStep(desc?: string | null): PipelineStepLabel {
-  const text = String(desc ?? '').toLowerCase()
-  if (text.includes('camera')) return 'Preprocessing & Camera Estimation'
-  if (text.includes('sparse structure')) return 'Sampling sparse structure (proj)'
-  if (text.includes('hr shape slat')) return 'Sampling HR shape SLat'
-  if (text.includes('shape slat')) return 'Sampling shape SLat (proj)'
-  if (text.includes('texture slat')) return 'Sampling texture SLat (proj)'
-  if (text.includes('render')) return 'Rendering'
-  return 'Sampling sparse structure (proj)'
-}
-
-interface QueueStatusPayload {
-  msg?: string
-  queue_size?: number
-  rank?: number
-  rank_eta?: number
-  progress_data?: Array<{
-    progress?: number | null
-    index?: number | null
-    length?: number | null
-    unit?: string | null
-    desc?: string | null
-  }>
-  output?: {
-    error?: string
-    data?: unknown[]
-  }
-  success?: boolean
-}
-
-interface OfficialQueueResponse {
-  position?: number
-  total_waiting?: number
-  gpu_busy?: boolean
-  total_ahead_for_unregistered?: number
-}
-
-interface OfficialProgressResponse {
-  stage?: string
-  step?: number
-  total?: number
-  done?: boolean
-}
-
-interface SseEventPayload {
-  event: string
-  data: unknown
-}
-
-function getLatestProgressItem(status?: QueueStatusPayload | null) {
-  const items = status?.progress_data ?? []
-  return items.length > 0 ? items[items.length - 1] : undefined
+function stepPercent(activeLabel: PipelineStepLabel, activeProgress = 0, completedLabels: Iterable<PipelineStepLabel> = []) {
+  const completed = new Set(completedLabels)
+  const fallbackIndex = PIPELINE_STEPS.indexOf(activeLabel)
+  const completedCount = Math.max(completed.size, fallbackIndex < 0 ? 0 : fallbackIndex)
+  return ((completedCount + Math.max(0, Math.min(1, activeProgress))) / PIPELINE_STEPS.length) * 100
 }
 
 function createProgress(
@@ -294,7 +185,7 @@ function createProgress(
   extra?: Pick<GenerateProgress, 'queuePosition' | 'etaSeconds'>,
 ): GenerateProgress {
   return {
-    progress: clampPercent(calcStepPercent(activeLabel, activeProgress, completedLabels)),
+    progress: clampPercent(stepPercent(activeLabel, activeProgress, completedLabels)),
     title,
     detail,
     phase,
@@ -303,75 +194,9 @@ function createProgress(
   }
 }
 
-function trimSlash(url: string): string {
-  return url.replace(/\/$/, '')
-}
-
-function startOfficialProgressPolling(
-  baseUrl: string,
-  sessionId: string,
-  onUpdate: (snapshot: { queue: OfficialQueueResponse | null; progress: OfficialProgressResponse | null }) => void,
-): () => void {
-  let stopped = false
-  let timer: ReturnType<typeof setTimeout> | null = null
-  let inFlight = false
-
-  const poll = async () => {
-    if (stopped || inFlight) return
-    inFlight = true
-
-    try {
-      const [queueRes, progressRes] = await Promise.all([
-        fetch(`${baseUrl}/queue?session_id=${sessionId}`, { credentials: 'omit', cache: 'no-store' }),
-        fetch(`${baseUrl}/progress?session_id=${sessionId}`, { credentials: 'omit', cache: 'no-store' }),
-      ])
-
-      const queue = queueRes.ok
-        ? await queueRes.json() as OfficialQueueResponse
-        : null
-      const progress = progressRes.ok
-        ? await progressRes.json() as OfficialProgressResponse
-        : null
-
-      onUpdate({ queue, progress })
-    } catch {
-      // ignore polling errors and fall back to SSE status
-    } finally {
-      inFlight = false
-      if (!stopped) {
-        timer = setTimeout(poll, 1200)
-      }
-    }
-  }
-
-  void poll()
-
-  return () => {
-    stopped = true
-    if (timer) clearTimeout(timer)
-  }
-}
-
-async function uploadImage(baseUrl: string, file: File): Promise<string> {
-  const form = new FormData()
-  form.append('files', file)
-
-  const res = await fetch(`${baseUrl}/gradio_api/upload`, {
-    method: 'POST',
-    body: form,
-    credentials: 'omit',
-  })
-
-  if (!res.ok) {
-    throw new Error(`图片上传失败 (${res.status})`)
-  }
-
-  const data = await res.json() as string[]
-  if (!Array.isArray(data) || !data[0]) {
-    throw new Error('上传结果解析失败')
-  }
-
-  return data[0]
+function latestProgress(status?: QueueStatusPayload | null) {
+  const items = status?.progress_data ?? []
+  return items.length > 0 ? items[items.length - 1] : undefined
 }
 
 function decodeSseEvents(text: string): SseEventPayload[] {
@@ -383,11 +208,14 @@ function decodeSseEvents(text: string): SseEventPayload[] {
   return chunks.map((chunk) => {
     const lines = chunk.split('\n')
     const eventLine = lines.find((line) => line.startsWith('event:'))
-    const dataLine = lines.find((line) => line.startsWith('data:'))
+    const dataLines = lines
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim())
+      .join('\n')
 
     return {
       event: eventLine ? eventLine.slice(6).trim() : 'message',
-      data: dataLine ? JSON.parse(dataLine.slice(5).trim()) : null,
+      data: dataLines ? JSON.parse(dataLines) : null,
     }
   })
 }
@@ -397,8 +225,7 @@ async function collectSseEvents(
   onEvent: (event: SseEventPayload) => void,
 ): Promise<SseEventPayload[]> {
   if (!response.body) {
-    const text = await response.text()
-    const events = decodeSseEvents(text)
+    const events = decodeSseEvents(await response.text())
     events.forEach(onEvent)
     return events
   }
@@ -416,9 +243,7 @@ async function collectSseEvents(
     buffer = chunks.pop() ?? ''
 
     for (const chunk of chunks) {
-      const trimmed = chunk.trim()
-      if (!trimmed) continue
-      const parsed = decodeSseEvents(trimmed)
+      const parsed = decodeSseEvents(chunk)
       for (const event of parsed) {
         events.push(event)
         onEvent(event)
@@ -440,26 +265,70 @@ async function collectSseEvents(
   return events
 }
 
+async function ensureReconViaGenApi(baseUrl: string): Promise<void> {
+  try {
+    const res = await fetch(`${baseUrl}/gradio_api/info`, {
+      credentials: 'omit',
+      cache: 'no-store',
+    })
+    if (!res.ok) throw new Error(`status ${res.status}`)
+    const data = await res.json() as { named_endpoints?: Record<string, unknown> }
+    const endpoints = data.named_endpoints ?? {}
+    const usable = ['/preprocess_images', '/generate_and_extract_glb'].every((name) => name in endpoints)
+    if (!usable) throw new Error('ReconViaGen endpoints missing')
+  } catch (error) {
+    throw new ModelApiNotReadyError(error instanceof Error ? error.message : undefined)
+  }
+}
+
+async function uploadImage(baseUrl: string, file: File): Promise<FileData> {
+  const form = new FormData()
+  form.append('files', file)
+
+  const res = await fetch(`${baseUrl}/gradio_api/upload`, {
+    method: 'POST',
+    body: form,
+    credentials: 'omit',
+  })
+
+  if (!res.ok) {
+    throw new Error(`Image upload failed (${res.status})`)
+  }
+
+  const data = await res.json() as string[]
+  if (!Array.isArray(data) || !data[0]) {
+    throw new Error('Image upload response was empty')
+  }
+
+  return {
+    path: data[0],
+    orig_name: file.name,
+    mime_type: file.type || 'image/png',
+    meta: { _type: 'gradio.FileData' },
+  }
+}
+
 async function gradioCall<T>(
   baseUrl: string,
   apiName: string,
   data: unknown[],
+  sessionHash: string,
   onStatus?: (status: QueueStatusPayload) => void,
 ): Promise<T> {
   const startRes = await fetch(`${baseUrl}/gradio_api/call/${apiName}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data }),
+    body: JSON.stringify({ data, session_hash: sessionHash }),
     credentials: 'omit',
   })
 
   if (!startRes.ok) {
-    throw new Error(`${apiName} 请求失败 (${startRes.status})`)
+    throw new Error(`${apiName} request failed (${startRes.status})`)
   }
 
   const startJson = await startRes.json() as { event_id?: string }
   if (!startJson.event_id) {
-    throw new Error(`${apiName} 启动失败`)
+    throw new Error(`${apiName} did not return an event id`)
   }
 
   const resultRes = await fetch(`${baseUrl}/gradio_api/call/${apiName}/${startJson.event_id}`, {
@@ -468,314 +337,209 @@ async function gradioCall<T>(
   })
 
   if (!resultRes.ok) {
-    throw new Error(`${apiName} 结果获取失败 (${resultRes.status})`)
+    throw new Error(`${apiName} result failed (${resultRes.status})`)
   }
 
   const events = await collectSseEvents(resultRes, (event) => {
-    if (event.event === 'error') {
-      return
-    }
-
     if (event.event === 'generating' || event.event === 'message') {
       onStatus?.(event.data as QueueStatusPayload)
     }
   })
-  if (events.length === 0) {
-    throw new Error(`${apiName} 无结果`)
-  }
 
   for (const event of events) {
     if (event.event === 'error') {
       const payload = event.data as { error?: string } | null
-      throw new Error(payload?.error || `${apiName} 执行失败`)
+      throw new Error(payload?.error || `${apiName} failed`)
     }
-
     const payload = event.data as QueueStatusPayload | null
     if (payload?.msg === 'process_completed' && payload.output?.error) {
       throw new Error(payload.output.error)
     }
   }
 
-  const completed = [...events].reverse().find((event) => event.event === 'complete')
-  const completedPayload = completed?.data
+  const completeEvent = [...events].reverse().find((event) => event.event === 'complete')
   const processCompleted = [...events]
     .reverse()
     .map((event) => event.data as QueueStatusPayload | null)
-    .find((event) => event?.msg === 'process_completed')
+    .find((payload) => payload?.msg === 'process_completed')
 
-  const resultData = Array.isArray(completedPayload)
-    ? completedPayload
+  const resultData = Array.isArray(completeEvent?.data)
+    ? completeEvent?.data
     : processCompleted?.output?.data
 
   if (!Array.isArray(resultData)) {
-    throw new Error(`${apiName} 结果解析失败`)
+    throw new Error(`${apiName} returned no usable data`)
   }
 
   return resultData as T
 }
 
-export const DEFAULT_GENERATE_SETTINGS: GenerateSettings = {
-  resolution: 1024,
-  seed: -1,
-  manualFov: -1,
-  ssGuidanceStrength: 7.5,
-  ssSamplingSteps: 8,
-  shapeGuidanceStrength: 7.5,
-  shapeSamplingSteps: 8,
-  decimationTarget: 250000,
-  textureSize: 1024,
+function toGalleryItems(files: FileData[]) {
+  return files.map((file) => ({
+    image: file,
+    caption: null,
+  }))
 }
 
-/**
- * 图片 → 3D 模型（三步流程）
- *
- * 1. /preprocess   — 去背景 + 图片预处理
- * 2. /generate_3d  — 生成 3D 结构体（返回 state_path）
- * 3. /extract_glb  — 从状态提取 GLB 文件
- */
+function normalizeGalleryOutput(data: unknown): Array<{ image: FileData; caption?: string | null }> {
+  if (!Array.isArray(data)) return []
+  return data
+    .map((item) => {
+      const value = item as { image?: FileData; caption?: string | null } | FileData
+      if ('image' in value && value.image) return value as { image: FileData; caption?: string | null }
+      return { image: value as FileData, caption: null }
+    })
+    .filter((item) => Boolean(item.image?.path || item.image?.url))
+}
+
+function normalizeGeneratedFile(baseUrl: string, data: unknown): string | null {
+  if (typeof data === 'string') return absoluteUrl(baseUrl, data)
+  const file = data as FileData | null
+  return absoluteUrl(baseUrl, file?.url ?? file?.path)
+}
+
 export async function generateModel(params: GenerateParams): Promise<GenerateResult> {
-  const gradioUrl = await resolveGradioUrl()
-  const baseUrl = trimSlash(gradioUrl)
-  const sessionId = crypto.randomUUID()
+  if (!params.images.length) {
+    throw new Error('Please upload at least one image.')
+  }
+
+  const baseUrl = resolveGradioUrl()
+  const sessionHash = crypto.randomUUID()
   const settings = { ...DEFAULT_GENERATE_SETTINGS, ...params.settings }
   const emitProgress = (progress: GenerateProgress) => params.onProgress?.(progress)
   const completedSteps = new Set<PipelineStepLabel>()
-  let currentGenerateStep: PipelineStepLabel | null = null
   const seed =
     Number.isFinite(settings.seed) && settings.seed >= 0
       ? settings.seed
-      : Math.floor(Math.random() * 100000)
+      : Math.floor(Math.random() * 2147483647)
+
+  await ensureReconViaGenApi(baseUrl)
 
   emitProgress({
     progress: 2,
-    title: 'Uploading source image',
-    detail: 'Preparing request...',
+    title: 'Connecting to ReconViaGen',
+    detail: 'Preparing generation session...',
     phase: 'uploading',
     steps: EMPTY_STEPS,
   })
 
-  // ── Step 1: 预处理图片 ────────────────────────────────────
-  const uploadedPath = await uploadImage(baseUrl, params.image)
-  const preData = await gradioCall<unknown[]>(baseUrl, 'preprocess', [{ path: uploadedPath }])
-  const preprocessedImage = preData[0] as FileData
+  await gradioCall<unknown[]>(baseUrl, 'start_session', [], sessionHash).catch(() => undefined)
 
   emitProgress(
     createProgress(
-      'Preprocessing & Camera Estimation',
-      'Cleaning image and estimating view...',
+      'Uploading images',
+      `${params.images.length} view${params.images.length > 1 ? 's' : ''} selected`,
+      'uploading',
+      'Upload images',
+      0.2,
+      completedSteps,
+    ),
+  )
+
+  const uploadedFiles: FileData[] = []
+  for (let index = 0; index < params.images.length; index += 1) {
+    const file = params.images[index]
+    uploadedFiles.push(await uploadImage(baseUrl, file))
+    emitProgress(
+      createProgress(
+        'Uploading images',
+        `${index + 1}/${params.images.length} uploaded`,
+        'uploading',
+        'Upload images',
+        (index + 1) / params.images.length,
+        completedSteps,
+      ),
+    )
+  }
+  completedSteps.add('Upload images')
+
+  emitProgress(
+    createProgress(
+      'Preprocessing views',
+      'Removing backgrounds and preparing multi-view inputs...',
       'preprocessing',
-      'Preprocessing & Camera Estimation',
-      1,
+      'Preprocess views',
+      0.25,
       completedSteps,
     ),
   )
-  completedSteps.add('Preprocessing & Camera Estimation')
 
-  // ── Step 2: 生成 3D ───────────────────────────────────────
-  let hasOfficialGenerateProgress = false
-  const stopGeneratePolling = startOfficialProgressPolling(baseUrl, sessionId, ({ queue, progress }) => {
-    const stageText = progress?.stage?.trim()
-    const hasSnapshot = Boolean(stageText) || typeof queue?.position === 'number'
-    if (!hasSnapshot) return
-
-    hasOfficialGenerateProgress = true
-    const stepLabel = stageText ? matchPipelineStep(stageText) : (currentGenerateStep ?? 'Sampling sparse structure (proj)')
-    const stepProgress = progress?.step && progress?.total ? progress.step / progress.total : 0.12
-
-    if (currentGenerateStep && currentGenerateStep !== stepLabel) {
-      completedSteps.add(currentGenerateStep)
-    }
-    currentGenerateStep = stepLabel
-
-    if (typeof queue?.position === 'number' && queue.position > 0 && !stageText) {
-      emitProgress({
-        progress: 3,
-        title: `In queue: ${queue.position} request${queue.position > 1 ? 's' : ''} ahead`,
-        detail: queue.gpu_busy ? 'Waiting for GPU slot...' : 'Waiting in queue...',
-        phase: 'generating',
-        steps: EMPTY_STEPS,
-        queuePosition: queue.position,
-      })
-      return
-    }
-
-    emitProgress(
-      createProgress(
-        stageText ?? 'Generating 3D structure',
-        progress?.step && progress?.total
-          ? `${progress.step}/${progress.total}`
-          : queue?.gpu_busy
-            ? 'GPU job running...'
-            : 'Generating 3D structure...',
-        'generating',
-        stepLabel,
-        Math.max(0.08, Math.min(1, stepProgress)),
-        completedSteps,
-        {
-          queuePosition: queue?.position,
-        },
-      ),
-    )
-  })
-
-  let genData: unknown[]
-  try {
-    genData = await gradioCall<unknown[]>(baseUrl, 'generate_3d', [
-      preprocessedImage,
-      seed,
-      settings.resolution,
-      settings.ssGuidanceStrength,
-      0.7,
-      settings.ssSamplingSteps,
-      5.0,
-      settings.shapeGuidanceStrength,
-      0.5,
-      settings.shapeSamplingSteps,
-      3.0,
-      1.0,
-      0.0,
-      settings.shapeSamplingSteps,
-      3.0,
-      settings.manualFov,
-      sessionId,
-    ], (status) => {
-      if (hasOfficialGenerateProgress) return
-
-      const latest = getLatestProgressItem(status)
-      const stepLabel = latest?.desc ? matchPipelineStep(latest.desc) : 'Sampling sparse structure (proj)'
-      const stepProgress = latest?.progress ?? (
-        latest?.index !== null && latest?.length ? (latest.index ?? 0) / latest.length : 0
-      )
-
-      if (currentGenerateStep && currentGenerateStep !== stepLabel) {
-        completedSteps.add(currentGenerateStep)
-      }
-      currentGenerateStep = stepLabel
-
-      if (status.rank && status.rank > 0 && !latest?.desc) {
-        emitProgress({
-          progress: 3,
-          title: `In queue: ${status.rank} request${status.rank > 1 ? 's' : ''} ahead`,
-          detail: formatEta(status.rank_eta),
-          phase: 'generating',
-          steps: EMPTY_STEPS,
-          queuePosition: status.rank,
-          etaSeconds: status.rank_eta,
-        })
-        return
-      }
-
-      const fallbackTitle = status.msg === 'process_completed' ? 'Generating 3D structure' : 'Preparing 3D generation'
+  const preprocessData = await gradioCall<unknown[]>(
+    baseUrl,
+    'preprocess_images',
+    [toGalleryItems(uploadedFiles)],
+    sessionHash,
+    (status) => {
+      const latest = latestProgress(status)
       emitProgress(
         createProgress(
-          latest?.desc ?? fallbackTitle,
-          latest?.length
-            ? `${Math.max(1, (latest.index ?? 0) + (latest.progress && latest.progress > 0 ? 1 : 0))}/${latest.length}`
-            : formatEta(status.rank_eta),
-          'generating',
-          stepLabel,
-          stepProgress ?? 0,
+          latest?.desc ?? 'Preprocessing views',
+          status.rank && status.rank > 0 ? formatEta(status.rank_eta) : 'Preparing image gallery...',
+          'preprocessing',
+          'Preprocess views',
+          latest?.progress ?? 0.5,
           completedSteps,
-          {
-            queuePosition: status.rank,
-            etaSeconds: status.rank_eta,
-          },
+          { queuePosition: status.rank, etaSeconds: status.rank_eta },
         ),
       )
-    })
-  } finally {
-    stopGeneratePolling()
+    },
+  )
+
+  const processedGallery = normalizeGalleryOutput(preprocessData[0])
+  if (processedGallery.length === 0) {
+    throw new Error(`Preprocess failed: ${JSON.stringify(preprocessData[0])}`)
   }
+  completedSteps.add('Preprocess views')
 
-  // generate_3d 返回 state 对象，其 path 字段作为 state_path 传给下一步
-  const stateObj = genData[0] as FileData | string | null
-  const statePath =
-    typeof stateObj === 'string'
-      ? stateObj
-      : (stateObj as FileData)?.state_path ??
-        (stateObj as FileData)?.path ??
-        (stateObj as FileData)?.url ??
-        null
-
-  if (!statePath) {
-    throw new Error(`生成失败：未获取到状态路径，数据：${JSON.stringify(stateObj)}`)
-  }
-
-  // ── Step 3: 提取 GLB ──────────────────────────────────────
   emitProgress(
     createProgress(
-      'Extracting GLB',
-      'Packaging geometry and textures...',
-      'extracting',
-      'Extracting GLB',
-      0.35,
+      'Generating 3D asset',
+      'ReconViaGen is sampling geometry and texture...',
+      'generating',
+      'Generate 3D asset',
+      0.1,
       completedSteps,
     ),
   )
-  if (currentGenerateStep) {
-    completedSteps.add(currentGenerateStep)
-  }
 
-  let hasOfficialExtractProgress = false
-  const stopExtractPolling = startOfficialProgressPolling(baseUrl, sessionId, ({ queue, progress }) => {
-    if (!progress?.stage && typeof queue?.position !== 'number') return
-    hasOfficialExtractProgress = true
-
-    emitProgress(
-      createProgress(
-        progress?.stage?.trim() || 'Extracting GLB',
-        progress?.step && progress?.total
-          ? `${progress.step}/${progress.total}`
-          : typeof queue?.position === 'number' && queue.position > 0
-            ? `Waiting for export slot...`
-            : 'Packaging geometry and textures...',
-        'extracting',
-        'Extracting GLB',
-        progress?.step && progress?.total ? progress.step / progress.total : 0.7,
-        completedSteps,
-        {
-          queuePosition: queue?.position,
-        },
-      ),
-    )
-  })
-
-  let glbDataList: unknown[]
-  try {
-    glbDataList = await gradioCall<unknown[]>(baseUrl, 'extract_glb_api', [
-      statePath,
-      settings.decimationTarget,
+  const generatedData = await gradioCall<unknown[]>(
+    baseUrl,
+    'generate_and_extract_glb',
+    [
+      processedGallery,
+      seed,
+      settings.ssGuidanceStrength,
+      settings.ssSamplingSteps,
+      settings.slatGuidanceStrength,
+      settings.slatSamplingSteps,
+      settings.multiimageAlgo,
+      settings.meshSimplify,
       settings.textureSize,
-      sessionId,
-    ], (status) => {
-      if (hasOfficialExtractProgress) return
-
+    ],
+    sessionHash,
+    (status) => {
+      const latest = latestProgress(status)
+      const isDone = status.msg === 'process_completed'
+      const queuePosition = status.rank && status.rank > 0 ? status.rank : undefined
       emitProgress(
         createProgress(
-          'Extracting GLB',
-          status.rank && status.rank > 0
-            ? `Waiting for export slot · ${formatEta(status.rank_eta)}`
-            : 'Packaging geometry and textures...',
-          'extracting',
-          'Extracting GLB',
-          status.msg === 'process_completed' ? 1 : 0.7,
+          latest?.desc ?? (queuePosition ? 'Waiting for ZeroGPU' : 'Generating 3D asset'),
+          queuePosition ? formatEta(status.rank_eta) : 'Generating and exporting GLB...',
+          'generating',
+          isDone ? 'Extract GLB' : 'Generate 3D asset',
+          isDone ? 1 : latest?.progress ?? 0.45,
           completedSteps,
-          {
-            queuePosition: status.rank,
-            etaSeconds: status.rank_eta,
-          },
+          { queuePosition, etaSeconds: status.rank_eta },
         ),
       )
-    })
-  } finally {
-    stopExtractPolling()
-  }
+    },
+  )
 
-  const glbData = glbDataList[0] as FileData | null
-  const glbUrl = glbData?.url ?? glbData?.path
+  const previewVideoUrl = normalizeGeneratedFile(baseUrl, generatedData[1])
+  const modelUrl = normalizeGeneratedFile(baseUrl, generatedData[3] ?? generatedData[2])
 
-  if (!glbUrl) {
-    throw new Error(`提取 GLB 失败：${JSON.stringify(glbData)}`)
+  if (!modelUrl) {
+    throw new Error(`GLB export failed: ${JSON.stringify(generatedData)}`)
   }
 
   emitProgress({
@@ -787,9 +551,8 @@ export async function generateModel(params: GenerateParams): Promise<GenerateRes
   })
 
   return {
-    modelUrl: glbUrl,
-    remoteModelUrl: glbUrl,
+    modelUrl,
+    remoteModelUrl: modelUrl,
+    previewVideoUrl: previewVideoUrl ?? undefined,
   }
 }
-
-

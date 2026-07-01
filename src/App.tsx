@@ -27,14 +27,14 @@ export default function App() {
   // ── 核心生成入口 ──────────────────────────────────────────────────
   // 当模型 API 就绪时，只需修改 src/services/modelApi.ts 即可
   const handleGenerate = useCallback(
-    async (imageFile: File, prompt: string, settings: GenerateSettings) => {
+    async (imageFiles: File[], prompt: string, settings: GenerateSettings) => {
       setAppState('generating')
       setError(null)
       setProgressInfo(null)
 
       try {
         const result = await generateModel({
-          image: imageFile,
+          images: imageFiles,
           prompt: prompt || undefined,
           settings,
           onProgress: setProgressInfo,
@@ -45,7 +45,7 @@ export default function App() {
 
         const asset: Asset = {
           id: Date.now().toString(),
-          name: imageFile.name.replace(/\.[^.]+$/, ''),
+          name: imageFiles[0]?.name.replace(/\.[^.]+$/, '') || 'ReconViaGen model',
           modelUrl: result.modelUrl,
           thumbnailUrl: result.thumbnailUrl,
           createdAt: new Date(),
